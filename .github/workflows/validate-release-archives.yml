@@ -1,0 +1,57 @@
+name: Validate OmniBridge release archives
+
+on:
+  push:
+    paths:
+      - 'archives/**'
+      - '.github/workflows/validate-release-archives.yml'
+  pull_request:
+    paths:
+      - 'archives/**'
+      - '.github/workflows/validate-release-archives.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Extract RC5 source
+        shell: pwsh
+        run: Expand-Archive -LiteralPath 'archives/OmniBridge_1.0.0-rc5_SOURCE.zip' -DestinationPath 'work'
+      - name: Regenerate Windows resources
+        shell: pwsh
+        working-directory: work/OmniBridge_1.0.0-rc5_SOURCE
+        run: |
+          go install github.com/akavel/rsrc@v0.10.2
+          $rsrc = Join-Path (go env GOPATH) 'bin\rsrc.exe'
+          & $rsrc -manifest assets/omnibridge.exe.manifest -ico assets/omnibridge.ico -o cmd/bridge/rsrc_windows_amd64.syso
+          & $rsrc -manifest assets/omnibridge.exe.manifest -ico assets/omnibridge.ico -o cmd/setup/rsrc_windows_amd64.syso
+      - name: Go tests
+        shell: pwsh
+        working-directory: work/OmniBridge_1.0.0-rc5_SOURCE
+        run: go test ./...
+      - name: Go vet
+        shell: pwsh
+        working-directory: work/OmniBridge_1.0.0-rc5_SOURCE
+        run: go vet ./...
+      - name: Validate XAML and PowerShell
+        shell: pwsh
+        working-directory: work/OmniBridge_1.0.0-rc5_SOURCE
+        run: ./scripts/validate-ui.ps1 -Root $PWD
+      - name: Build Windows x64
+        shell: pwsh
+        working-directory: work/OmniBridge_1.0.0-rc5_SOURCE
+        run: ./scripts/build-release.ps1 -Root $PWD
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniBridge-${{ github.sha }}-Windows-x64
+          path: work/OmniBridge_1.0.0-rc5_SOURCE/dist/*.zip
