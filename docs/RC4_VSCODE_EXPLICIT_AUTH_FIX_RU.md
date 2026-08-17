@@ -1,0 +1,3 @@
+# OmniBridge 1.0.0-rc4 — VS Code explicit auth hotfix
+
+RC4 устраняет повторный `invalid local bridge key` после RC3. VS Code Custom Endpoint хранит BYOK secret отдельно от `chatLanguageModels.json`, поэтому старое SecretStorage state может пережить перезапись JSON. RC4 после preflight записывает в каждую OmniBridge model явные `Authorization: Bearer <current-key>` и `x-bridge-key: <current-key>`. Фактический запрос больше не зависит от `${apiKey}` substitution. Явный `Authorization` является documented Custom Endpoint auth override и подавляет inferred default Authorization. Core также выдаёт безопасную 401-диагностику только с fingerprint и перечнем присутствующих auth headers.

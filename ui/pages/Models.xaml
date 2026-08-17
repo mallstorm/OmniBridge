@@ -1,0 +1,64 @@
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="Transparent">
+    <Grid Margin="18,15">
+        <Grid.RowDefinitions><RowDefinition Height="48"/><RowDefinition Height="10"/><RowDefinition Height="45"/><RowDefinition Height="10"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid>
+            <StackPanel><TextBlock Text="Модели" Style="{StaticResource PageTitle}"/><TextBlock Text="Единый Model Registry: API-ключи, аккаунты и локальные runtime." Style="{StaticResource PageSubtitle}" Margin="0,3,0,0"/></StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><TextBlock x:Name="ModelsCount" Text="Моделей: 0" VerticalAlignment="Center" Foreground="{StaticResource Text2Brush}" FontSize="11" Margin="0,0,12,0"/><Button x:Name="BtnModelsRefresh" Style="{StaticResource QuietButton}" Width="112" Content="Обновить"/></StackPanel>
+        </Grid>
+
+        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="9,4">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="9"/><ColumnDefinition Width="180"/><ColumnDefinition Width="9"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
+                <Grid>
+                    <Path Data="{StaticResource IconSearch}" Stroke="{StaticResource Text3Brush}" StrokeThickness="1.5" Width="14" Height="14" HorizontalAlignment="Left" Margin="9,0,0,0" Stretch="Uniform"/>
+                    <TextBox x:Name="ModelsSearch" Margin="30,0,0,0" BorderThickness="0" Background="Transparent" Padding="3,0" FontSize="14" VerticalContentAlignment="Center"/>
+                    <TextBlock x:Name="ModelsSearchPlaceholder" Text="Поиск по моделям и провайдерам" Margin="34,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource Text3Brush}" FontSize="13" IsHitTestVisible="False"/>
+                </Grid>
+                <ComboBox x:Name="ModelsProviderFilter" Grid.Column="2"/>
+                <ComboBox x:Name="ModelsSourceFilter" Grid.Column="4"><ComboBoxItem Content="Все источники" IsSelected="True"/><ComboBoxItem Content="API Ключ"/><ComboBoxItem Content="Account"/><ComboBoxItem Content="Local"/></ComboBox>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="64*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="36*"/></Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource Card}" Padding="11,9">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="25"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Grid><TextBlock Text="Каталог моделей" Style="{StaticResource SectionTitle}"/><TextBlock Text="Статус основан на фактической проверке" HorizontalAlignment="Right" Style="{StaticResource SecondaryText}"/></Grid>
+                    <Grid Grid.Row="1">
+                        <ListBox x:Name="ModelsList">
+                            <ListBox.ItemTemplate><DataTemplate><Border Background="#0D1B2A" BorderBrush="#1A3148" BorderThickness="1" CornerRadius="8" Padding="9,7"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="1.5*"/><ColumnDefinition Width="94"/><ColumnDefinition Width="78"/><ColumnDefinition Width="58"/></Grid.ColumnDefinitions><Border Width="25" Height="25" CornerRadius="7" Background="#162C4C" BorderBrush="#294963" BorderThickness="1" Padding="2"><Image Source="{Binding icon}" Width="20" Height="20" Stretch="Uniform"/></Border><StackPanel Grid.Column="1"><TextBlock Text="{Binding name}" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding provider}" FontSize="9.5" Foreground="{StaticResource Text2Brush}"/></StackPanel><Border Grid.Column="2" Background="{Binding badge_bg}" CornerRadius="5" Padding="6,3" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding badge}" Foreground="{Binding badge_fg}" FontSize="9"/></Border><TextBlock Grid.Column="3" Text="{Binding protocol}" FontSize="9.2" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding latency}" FontSize="9.2" Foreground="{StaticResource Text2Brush}" HorizontalAlignment="Right" VerticalAlignment="Center"/></Grid></Border></DataTemplate></ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel x:Name="ModelsEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"><Border Width="42" Height="42" CornerRadius="21" Background="#10243A" BorderBrush="#244764" BorderThickness="1"><Path Data="{StaticResource IconCube}" Stroke="{StaticResource Text3Brush}" StrokeThickness="1.5" Width="20" Height="20" Stretch="Uniform"/></Border><TextBlock Text="Каталог моделей пуст" Style="{StaticResource EmptyStateTitle}" Margin="0,10,0,0"/><TextBlock Text="Добавьте API-провайдера, аккаунт или локальный runtime." Style="{StaticResource EmptyStateText}" Width="280" Margin="0,4,0,0"/></StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource Card}" Padding="14,11">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="32"/><RowDefinition Height="*"/><RowDefinition Height="44"/></Grid.RowDefinitions>
+                    <TextBlock x:Name="ModelDetailTitle" Text="Выберите модель" Style="{StaticResource SectionTitle}"/>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="0,0,5,0">
+                            <TextBlock Text="ПРОВАЙДЕР / ПРОТОКОЛ" Style="{StaticResource Kicker}"/>
+                            <Grid Margin="0,4,0,9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock x:Name="ModelDetailProvider" Text="—" FontSize="11.2" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ModelDetailProtocol" Grid.Column="2" Text="—" FontSize="11.2" TextTrimming="CharacterEllipsis"/></Grid>
+                            <TextBlock Text="MODEL DOCTOR SCORE" Style="{StaticResource Kicker}"/>
+                            <UniformGrid Columns="4" Margin="0,6,0,10">
+                                <Border Background="#102A42" CornerRadius="6" Padding="6,5" Margin="0,0,4,0"><StackPanel><TextBlock x:Name="ModelDoctorScore" Text="—" FontSize="14" Foreground="#6EC7FF" HorizontalAlignment="Center"/><TextBlock Text="Doctor" FontSize="8.8" Foreground="{StaticResource Text2Brush}" HorizontalAlignment="Center"/></StackPanel></Border>
+                                <Border Background="#142C25" CornerRadius="6" Padding="6,5" Margin="2,0"><StackPanel><TextBlock x:Name="ModelAgentScore" Text="—" FontSize="14" Foreground="#64EA88" HorizontalAlignment="Center"/><TextBlock Text="Agent" FontSize="8.8" Foreground="{StaticResource Text2Brush}" HorizontalAlignment="Center"/></StackPanel></Border>
+                                <Border Background="#241D3D" CornerRadius="6" Padding="6,5" Margin="2,0"><StackPanel><TextBlock x:Name="ModelCodingScore" Text="—" FontSize="14" Foreground="#B69AFF" HorizontalAlignment="Center"/><TextBlock Text="Coding" FontSize="8.8" Foreground="{StaticResource Text2Brush}" HorizontalAlignment="Center"/></StackPanel></Border>
+                                <Border Background="#302715" CornerRadius="6" Padding="6,5" Margin="4,0,0,0"><StackPanel><TextBlock x:Name="ModelReliabilityScore" Text="—" FontSize="14" Foreground="#FFD45D" HorizontalAlignment="Center"/><TextBlock Text="Reliability" FontSize="8.8" Foreground="{StaticResource Text2Brush}" HorizontalAlignment="Center"/></StackPanel></Border>
+                            </UniformGrid>
+                            <TextBlock Text="ВОЗМОЖНОСТИ" Style="{StaticResource Kicker}"/>
+                            <WrapPanel x:Name="ModelCapabilities" Margin="0,6,0,8"><Border Background="#123358" CornerRadius="5" Padding="7,3" Margin="0,0,5,5"><TextBlock x:Name="CapChat" Text="Chat" FontSize="9.3"/></Border><Border Background="#123358" CornerRadius="5" Padding="7,3" Margin="0,0,5,5"><TextBlock x:Name="CapStream" Text="Streaming" FontSize="9.3"/></Border><Border Background="#123358" CornerRadius="5" Padding="7,3" Margin="0,0,5,5"><TextBlock x:Name="CapTools" Text="Tools" FontSize="9.3"/></Border><Border Background="#123358" CornerRadius="5" Padding="7,3" Margin="0,0,5,5"><TextBlock x:Name="CapParallel" Text="Parallel" FontSize="9.3"/></Border><Border Background="#123358" CornerRadius="5" Padding="7,3" Margin="0,0,5,5"><TextBlock x:Name="CapStructured" Text="JSON" FontSize="9.3"/></Border><Border Background="#123358" CornerRadius="5" Padding="7,3" Margin="0,0,5,5"><TextBlock x:Name="CapReasoning" Text="Reasoning" FontSize="9.3"/></Border><Border Background="#123358" CornerRadius="5" Padding="7,3" Margin="0,0,5,5"><TextBlock x:Name="CapVision" Text="Vision" FontSize="9.3"/></Border></WrapPanel>
+                            <TextBlock Text="КОНТЕКСТ" Style="{StaticResource Kicker}"/>
+                            <Grid Margin="0,5,0,9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Background="#0A1725" BorderBrush="#193149" BorderThickness="1" CornerRadius="6" Padding="8,5"><StackPanel><TextBlock Text="Context window" FontSize="8.8" Foreground="{StaticResource Text2Brush}"/><TextBlock x:Name="ModelDetailContext" Text="—" FontSize="11.2" Margin="0,2,0,0"/></StackPanel></Border><Border Grid.Column="2" Background="#0A1725" BorderBrush="#193149" BorderThickness="1" CornerRadius="6" Padding="8,5"><StackPanel><TextBlock Text="Max output" FontSize="8.8" Foreground="{StaticResource Text2Brush}"/><TextBlock x:Name="ModelDetailOutput" Text="—" FontSize="11.2" Margin="0,2,0,0"/></StackPanel></Border></Grid>
+                            <TextBlock Text="ПОСЛЕДНЯЯ ПРОВЕРКА" Style="{StaticResource Kicker}"/><TextBlock x:Name="ModelDetailChecked" Text="—" FontSize="10.5" Foreground="{StaticResource Text2Brush}" Margin="0,4,0,0"/><TextBlock x:Name="ModelDetailError" Text="" TextWrapping="Wrap" FontSize="9.8" Foreground="{StaticResource ErrorBrush}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Button x:Name="BtnProbeSelectedModel" Grid.Row="2" Style="{StaticResource PrimaryButton}" Content="Проверить в Model Doctor" VerticalAlignment="Bottom" IsEnabled="False"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

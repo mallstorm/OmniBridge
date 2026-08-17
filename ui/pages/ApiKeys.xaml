@@ -1,0 +1,46 @@
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="Transparent">
+    <Grid Margin="18,15">
+        <Grid.RowDefinitions><RowDefinition Height="48"/><RowDefinition Height="10"/><RowDefinition Height="318"/><RowDefinition Height="10"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid><StackPanel><TextBlock Text="API Ключи" Style="{StaticResource PageTitle}"/><TextBlock Text="Подключите облачный или локальный AI — OmniBridge сам определит endpoint и модели." Style="{StaticResource PageSubtitle}" Margin="0,3,0,0"/></StackPanel><Button x:Name="BtnApiRefresh" Style="{StaticResource QuietButton}" HorizontalAlignment="Right" Width="112" Content="Обновить"/></Grid>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="53*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="47*"/></Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource Card}" Padding="15,12">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="28"/><RowDefinition Height="*"/><RowDefinition Height="40"/></Grid.RowDefinitions>
+                    <TextBlock Text="Новое API-подключение" Style="{StaticResource SectionTitle}"/>
+                    <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="54"/><RowDefinition Height="54"/><RowDefinition Height="54"/><RowDefinition Height="54"/></Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Grid.ColumnSpan="3"><TextBlock Text="ПРОВАЙДЕР" Style="{StaticResource Kicker}" Margin="1,0,0,4"/><ComboBox x:Name="ProviderPreset" DisplayMemberPath="display"/></StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="0"><TextBlock Text="ИМЯ ПРОФИЛЯ" Style="{StaticResource Kicker}" Margin="1,0,0,4"/><TextBox x:Name="ProviderName"/></StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="2"><TextBlock Text="BASE URL" Style="{StaticResource Kicker}" Margin="1,0,0,4"/><TextBox x:Name="ProviderBaseUrl"/></StackPanel>
+                        <StackPanel Grid.Row="2" Grid.ColumnSpan="3"><TextBlock Text="API KEY / AUTHORIZATION KEY" Style="{StaticResource Kicker}" Margin="1,0,0,4"/><PasswordBox x:Name="ProviderApiKey"/></StackPanel>
+                        <StackPanel x:Name="ProviderScopePanel" Grid.Row="3" Grid.ColumnSpan="3" Visibility="Collapsed"><TextBlock Text="GIGACHAT SCOPE" Style="{StaticResource Kicker}" Margin="1,0,0,4"/><ComboBox x:Name="ProviderScope"><ComboBoxItem Content="GIGACHAT_API_PERS" IsSelected="True"/><ComboBoxItem Content="GIGACHAT_API_B2B"/><ComboBoxItem Content="GIGACHAT_API_CORP"/></ComboBox></StackPanel>
+                        <StackPanel x:Name="ProviderYandexPanel" Grid.Row="3" Grid.ColumnSpan="3" Visibility="Collapsed"><TextBlock Text="YANDEX CLOUD FOLDER ID" Style="{StaticResource Kicker}" Margin="1,0,0,4"/><TextBox x:Name="ProviderYandexFolderID" ToolTip="Идентификатор каталога Yandex Cloud для заголовка OpenAI-Project"/></StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="2"><CheckBox x:Name="ProviderAllowUnverified" Content="Добавить даже при временной ошибке проверки" Foreground="{StaticResource Text2Brush}" FontSize="10.5" VerticalAlignment="Center"/><Button x:Name="BtnProviderAdd" Style="{StaticResource PrimaryButton}" Content="Проверить и добавить" Width="154" HorizontalAlignment="Right"/></Grid>
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Column="2">
+                <Border Style="{StaticResource Card}" Height="186" Padding="15,12">
+                    <StackPanel><TextBlock Text="Автоматическая настройка" Style="{StaticResource SectionTitle}"/><TextBlock Text="После добавления OmniBridge безопасно проверит endpoint, получит список моделей и обновит единый Model Registry." TextWrapping="Wrap" Style="{StaticResource PageSubtitle}" Margin="0,8,0,0"/>
+                        <Border Background="#0B2333" BorderBrush="#1B4760" BorderThickness="1" CornerRadius="9" Padding="11" Margin="0,12,0,0"><StackPanel><TextBlock Text="Что будет выполнено" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource HeadingBrush}"/><TextBlock Text="1. Определение семейства API и авторизации" Style="{StaticResource SecondaryText}" Margin="0,6,0,0"/><TextBlock Text="2. Discovery моделей и проверка доступности" Style="{StaticResource SecondaryText}" Margin="0,4,0,0"/><TextBlock Text="3. Подготовка моделей для Model Doctor" Style="{StaticResource SecondaryText}" Margin="0,4,0,0"/></StackPanel></Border>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}" Height="122" Margin="0,10,0,0" Padding="15,11">
+                    <Grid><Grid.RowDefinitions><RowDefinition Height="28"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="Локальные AI" Style="{StaticResource SectionTitle}"/><TextBlock Text="Проверяются Ollama, LM Studio, vLLM и LocalAI. Будут добавлены только runtime с загруженными моделями." Grid.Row="1" Width="260" TextWrapping="Wrap" Style="{StaticResource SecondaryText}" HorizontalAlignment="Left"/><Button x:Name="BtnLocalScan" Grid.Row="1" Style="{StaticResource QuietButton}" Content="Найти локальные AI" Width="138" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Grid>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="4" Style="{StaticResource Card}" Padding="13,9">
+            <Grid><Grid.RowDefinitions><RowDefinition Height="27"/><RowDefinition Height="*"/></Grid.RowDefinitions><Grid><TextBlock Text="Подключённые API" Style="{StaticResource SectionTitle}"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="BtnProviderRefresh" Style="{StaticResource QuietButton}" Content="Обновить модели" Height="27" Margin="0,0,7,0"/><Button x:Name="BtnProviderDelete" Style="{StaticResource DangerButton}" Content="Удалить" Height="27"/></StackPanel></Grid>
+                <Grid Grid.Row="1">
+                    <ListBox x:Name="ProvidersList">
+                        <ListBox.ItemTemplate><DataTemplate><Border Background="#0D1B2A" BorderBrush="#1B3148" BorderThickness="1" CornerRadius="8" Padding="10,7"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="1.4*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="80"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions><Border Width="23" Height="23" CornerRadius="6" Background="#123156"><Path Data="{StaticResource IconKey}" Stroke="#71BEFF" StrokeThickness="1.5" Width="13" Height="13" Stretch="Uniform"/></Border><StackPanel Grid.Column="1"><TextBlock Text="{Binding name}" FontSize="11.5" FontWeight="SemiBold"/><TextBlock Text="{Binding kind}" FontSize="9.5" Foreground="{StaticResource Text2Brush}"/></StackPanel><TextBlock Grid.Column="2" Text="{Binding endpoint}" FontSize="9.5" Foreground="{StaticResource Text2Brush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><TextBlock Grid.Column="3" Text="{Binding models}" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/><TextBlock Grid.Column="4" Text="{Binding state}" FontSize="10" Foreground="{StaticResource SuccessBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/></Grid></Border></DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
+                    <StackPanel x:Name="ProvidersEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"><Border Width="38" Height="38" CornerRadius="19" Background="#10243A" BorderBrush="#244764" BorderThickness="1"><Path Data="{StaticResource IconKey}" Stroke="{StaticResource Text3Brush}" StrokeThickness="1.5" Width="18" Height="18" Stretch="Uniform"/></Border><TextBlock Text="API-подключений пока нет" Style="{StaticResource EmptyStateTitle}" Margin="0,9,0,0"/><TextBlock Text="Выберите провайдера, вставьте ключ и запустите проверку." Style="{StaticResource EmptyStateText}" Margin="0,4,0,0"/></StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

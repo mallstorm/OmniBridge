@@ -1,0 +1,44 @@
+OmniBridge 1.0.0-rc5 — VALIDATION REPORT
+=========================================
+Scope: Yandex AI Studio native provider + load stabilization
+
+BASELINE
+[PASS] OmniBridge_1.0.0-rc4_SOURCE archive structure inspected
+[PASS] original archive SHA-256 recorded
+[PASS] RC4 contains completed stages 1–15 and supersedes rc6/0.4.x stage artifacts
+[PASS] RC4 VS Code auth, GigaChat TLS, UI 3.0 and Tray contracts preserved
+
+YANDEX
+[PASS] native provider definition and executor present
+[PASS] API key and Folder ID are separate inputs
+[PASS] Authorization uses Api-Key, not Bearer
+[PASS] OpenAI-Project is derived from validated Folder ID
+[PASS] /v1/models, Responses and Chat Completions configured
+[PASS] API key remains CredentialRef/Secret Store only
+[PASS] cached_tokens extraction covers Chat and Responses usage
+[PASS] Quota & Cost receives cached input token count
+[PASS] Yandex deep Doctor is preferred-protocol-only and cost-confirmed in UI
+
+STABILITY
+[PASS] generation concurrency bounded at 16
+[PASS] deep probe concurrency bounded at 2
+[PASS] discovery concurrency bounded at 4
+[PASS] overload response is HTTP 429 gateway_busy + Retry-After
+[PASS] request/background/tray panic isolation present
+[PASS] usage events append immediately; full snapshots are coalesced
+[PASS] graceful Stats.Flush is wired before SQLite close
+
+STATIC UI / PACKAGE
+[PASS] provider catalog JSON parse: 92 unique providers
+[PASS] XAML XML parse: 14/14
+[PASS] named Button handlers: 65/65
+[PASS] workflow YAML parse
+[PASS] secret-pattern scan
+[PASS] embedded manifest version: 1.0.0.5
+
+TO BE EXECUTED BY GITHUB ACTIONS / WINDOWS
+[PENDING] go test ./...
+[PENDING] go vet ./...
+[PENDING] scripts/validate-ui.ps1
+[PENDING] Windows x64 CGO_ENABLED=0 build
+[PENDING] live Yandex credentials: models/chat/responses/tools/cache acceptance
