@@ -26,6 +26,12 @@ jobs:
       - name: Extract RC5 source
         shell: pwsh
         run: Expand-Archive -LiteralPath 'archives/OmniBridge_1.0.0-rc5_SOURCE.zip' -DestinationPath 'work'
+      - name: Export validated RC5 source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniBridge-${{ github.sha }}-RC5-source-tree
+          path: work/OmniBridge_1.0.0-rc5_SOURCE/**
+          include-hidden-files: true
       - name: Regenerate Windows resources
         shell: pwsh
         working-directory: work/OmniBridge_1.0.0-rc5_SOURCE
