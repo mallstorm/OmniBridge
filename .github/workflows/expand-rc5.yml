@@ -32,13 +32,19 @@ jobs:
               if (-not (Test-Path -LiteralPath $destination)) {
                 New-Item -ItemType Directory -Path $destination | Out-Null
               }
-              Copy-Item -LiteralPath (Join-Path $_.FullName '*') -Destination $destination -Recurse -Force -ErrorAction SilentlyContinue
               Get-ChildItem -LiteralPath $_.FullName -Force | ForEach-Object {
                 Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
               }
             } else {
               Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
             }
+          }
+          # GitHub Actions token may write repository contents, but it cannot create/update
+          # workflow files without the separate workflows permission. Add the root CI file
+          # through the connected GitHub API after this migration succeeds.
+          $rootWorkflow = Join-Path $PWD '.github/workflows/validate.yml'
+          if (Test-Path -LiteralPath $rootWorkflow) {
+            Remove-Item -LiteralPath $rootWorkflow -Force
           }
           Remove-Item -LiteralPath $migration -Recurse -Force
       - name: Commit expanded source tree
