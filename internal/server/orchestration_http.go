@@ -54,6 +54,8 @@ func (s *Server) OrchestrationHandler() http.Handler {
 	}))
 	specialMux.HandleFunc("GET /bridge/orchestration", s.withAdmin(s.orchestrationStatus))
 	specialMux.HandleFunc("GET /bridge/orchestration/workflows", s.withAdmin(s.orchestrationWorkflows))
+	specialMux.HandleFunc("GET /bridge/orchestration/executions", s.withAdmin(s.orchestrationExecutions))
+	specialMux.HandleFunc("GET /bridge/orchestration/executions/{id}", s.withAdmin(s.orchestrationExecution))
 	specialMux.HandleFunc("POST /bridge/orchestration/evaluate", s.withAdmin(s.orchestrationEvaluate))
 
 	var special http.Handler = specialMux
@@ -99,8 +101,11 @@ func isGenerationPath(method, path string) bool {
 }
 
 func isOrchestrationControlPath(method, path string) bool {
-	if method == http.MethodGet && (path == "/bridge/orchestration" || path == "/bridge/orchestration/workflows") {
-		return true
+	if method == http.MethodGet {
+		return path == "/bridge/orchestration" ||
+			path == "/bridge/orchestration/workflows" ||
+			path == "/bridge/orchestration/executions" ||
+			strings.HasPrefix(path, "/bridge/orchestration/executions/")
 	}
 	return method == http.MethodPost && path == "/bridge/orchestration/evaluate"
 }
