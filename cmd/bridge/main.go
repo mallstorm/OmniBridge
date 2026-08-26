@@ -165,7 +165,7 @@ func runHeadless(root string, logger *log.Logger) error {
 		defer cancel()
 		_ = core.server.Stop(ctx)
 	}()
-	err = core.server.Start()
+	err = core.server.StartOrchestrated()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -199,7 +199,7 @@ func runIntegratedOnce(root string, logger *log.Logger) (bool, error) {
 				serverErr <- fmt.Errorf("integrated Core recovered from panic: %v", recovered)
 			}
 		}()
-		serverErr <- core.server.Start()
+		serverErr <- core.server.StartOrchestrated()
 	}()
 	if err := waitForCore(core.server.Config.Get().Listen, serverErr); err != nil {
 		return false, err
