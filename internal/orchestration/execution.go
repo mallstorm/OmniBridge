@@ -33,9 +33,9 @@ type ReviewVerdict struct {
 
 type StepResult struct {
 	StepID, Model, Provider, Output, Error string
-	Role                                  Role
-	Status                                StepStatus
-	StartedAt, FinishedAt                 time.Time
+	Role                                   Role
+	Status                                 StepStatus
+	StartedAt, FinishedAt                  time.Time
 	InputTokens, OutputTokens, TotalTokens int64
 }
 
@@ -51,17 +51,17 @@ type Execution struct {
 type Request struct{ ID string; Input string }
 
 type Call struct {
-	ExecutionID   string
-	Workflow      Workflow
-	Step          Step
-	Input         string
-	Iteration     int
+	ExecutionID    string
+	Workflow       Workflow
+	Step           Step
+	Input          string
+	Iteration      int
 	AvoidProviders []string
 	AvoidModels    []string
 }
 
 type CallResult struct {
-	Model, Provider, Output              string
+	Model, Provider, Output                 string
 	InputTokens, OutputTokens, TotalTokens int64
 }
 
@@ -94,12 +94,18 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 	}
 
 	ex = Execution{ID: req.ID, WorkflowID: wf.ID, WorkflowVersion: wf.Version, Status: ExecutionRunning, StartedAt: time.Now()}
+	recorder := e.Recorder
+	if recorder == nil {
+		if auto, ok := e.Executor.(Recorder); ok {
+			recorder = auto
+		}
+	}
 	defer func() {
 		if ex.FinishedAt.IsZero() && ex.Status != ExecutionRunning {
 			ex.FinishedAt = time.Now()
 		}
-		if e.Recorder != nil && ex.ID != "" {
-			if err := e.Recorder.Save(ex); err != nil && runErr == nil {
+		if recorder != nil && ex.ID != "" {
+			if err := recorder.Save(ex); err != nil && runErr == nil {
 				runErr = fmt.Errorf("workflow_persistence_failed: %w", err)
 			}
 		}
@@ -124,19 +130,26 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 			input := buildInput(step.Role, req.Input, candidate, critique, ex.Review)
 			started := time.Now()
 			result, err := e.Executor.Execute(ctx, Call{
-				ExecutionID: ex.ID,
-				Workflow: wf,
-				Step: step,
-				Input: input,
-				Iteration: iteration,
+				ExecutionID:    ex.ID,
+				Workflow:       wf,
+				Step:           step,
+				Input:          input,
+				Iteration:      iteration,
 				AvoidProviders: append([]string(nil), avoidProviders...),
-				AvoidModels: append([]string(nil), avoidModels...),
+				AvoidModels:    append([]string(nil), avoidModels...),
 			})
 			sr := StepResult{
-				StepID: step.ID, Role: step.Role, Status: StepCompleted,
-				StartedAt: started, FinishedAt: time.Now(), Model: result.Model,
-				Provider: result.Provider, Output: result.Output,
-				InputTokens: result.InputTokens, OutputTokens: result.OutputTokens, TotalTokens: result.TotalTokens,
+				StepID:       step.ID,
+				Role:         step.Role,
+				Status:       StepCompleted,
+				StartedAt:    started,
+				FinishedAt:   time.Now(),
+				Model:        result.Model,
+				Provider:     result.Provider,
+				Output:       result.Output,
+				InputTokens:  result.InputTokens,
+				OutputTokens: result.OutputTokens,
+				TotalTokens:  result.TotalTokens,
 			}
 			if err != nil {
 				sr.Status = StepFailed
