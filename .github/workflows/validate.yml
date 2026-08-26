@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -32,8 +36,39 @@ jobs:
       - name: Build Windows x64
         shell: pwsh
         run: ./scripts/build-release.ps1 -Root $PWD
+      - name: Prune old build artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $all = @()
+          $page = 1
+          do {
+            $uri = "https://api.github.com/repos/$env:GH_REPO/actions/artifacts?per_page=100&page=$page"
+            $resp = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+            $batch = @($resp.artifacts)
+            $all += $batch
+            $page++
+          } while ($batch.Count -eq 100)
+
+          $ordered = @($all | Where-Object { -not $_.expired } | Sort-Object {[datetime]$_.created_at} -Descending)
+          # Keep two existing artifacts; the artifact produced by this run becomes the third retained build.
+          $toDelete = @($ordered | Select-Object -Skip 2)
+          Write-Host "Artifacts found: $($ordered.Count); deleting: $($toDelete.Count); preserving before upload: $([Math]::Min(2, $ordered.Count))"
+          foreach ($artifact in $toDelete) {
+            $deleteUri = "https://api.github.com/repos/$env:GH_REPO/actions/artifacts/$($artifact.id)"
+            Invoke-RestMethod -Uri $deleteUri -Headers $headers -Method Delete
+            Write-Host "Deleted artifact $($artifact.id): $($artifact.name)"
+          }
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
         with:
           name: OmniBridge-${{ github.sha }}-Windows-x64
           path: dist/*.zip
+          retention-days: 14
