@@ -187,6 +187,10 @@ func (s *Server) orchestrationProxyHTTP(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
+	if apiType == "responses" {
+		s.handleWorkflowResponses(w, r, body, meta.Model)
+		return
+	}
 	if !s.handleWorkflowProxy(w, r, apiType, body, meta.Model) {
 		jsonOut(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"message": "request is not a workflow model", "type": "workflow_request_invalid", "code": "workflow_request_invalid"}})
 	}
