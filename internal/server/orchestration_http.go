@@ -36,8 +36,8 @@ func (s *Server) StartOrchestrated() error {
 }
 
 // OrchestrationHandler delegates every ordinary request to the unchanged base
-// Handler. Only explicit workflow models and orchestration control endpoints
-// are intercepted.
+// Handler. Only explicit workflow models and orchestration/agent control
+// endpoints are intercepted.
 func (s *Server) OrchestrationHandler() http.Handler {
 	base := s.Handler()
 
@@ -57,6 +57,8 @@ func (s *Server) OrchestrationHandler() http.Handler {
 	specialMux.HandleFunc("GET /bridge/orchestration/executions", s.withAdmin(s.orchestrationExecutions))
 	specialMux.HandleFunc("GET /bridge/orchestration/executions/{id}", s.withAdmin(s.orchestrationExecution))
 	specialMux.HandleFunc("POST /bridge/orchestration/evaluate", s.withAdmin(s.orchestrationEvaluate))
+	specialMux.HandleFunc("GET /bridge/agent-compatibility", s.withAdmin(s.agentCompatibilityStatus))
+	specialMux.HandleFunc("POST /bridge/agent-compatibility/evaluate", s.withAdmin(s.agentCompatibilityEvaluate))
 
 	var special http.Handler = specialMux
 	special = s.recoverPanics(special)
@@ -105,9 +107,13 @@ func isOrchestrationControlPath(method, path string) bool {
 		return path == "/bridge/orchestration" ||
 			path == "/bridge/orchestration/workflows" ||
 			path == "/bridge/orchestration/executions" ||
+			path == "/bridge/agent-compatibility" ||
 			strings.HasPrefix(path, "/bridge/orchestration/executions/")
 	}
-	return method == http.MethodPost && path == "/bridge/orchestration/evaluate"
+	if method == http.MethodPost {
+		return path == "/bridge/orchestration/evaluate" || path == "/bridge/agent-compatibility/evaluate"
+	}
+	return false
 }
 
 func peekWorkflowRequest(r *http.Request, configuredMax int) (bool, []byte, error) {
