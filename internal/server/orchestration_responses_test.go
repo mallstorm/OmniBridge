@@ -29,7 +29,7 @@ func TestOrchestrationResponsesAPIEndToEnd(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/models":
-			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{map[string]any{"id": "model-a", "object": "model"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{map[string]any{"id": "model-a", "object": "model"}}})
 		case "/v1/chat/completions":
 			mu.Lock()
 			i := calls
