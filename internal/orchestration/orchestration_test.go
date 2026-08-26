@@ -85,6 +85,54 @@ func TestReviewerFailThenFixAndPass(t *testing.T) {
 	}
 }
 
+func TestReviewLimitReturnsBestCandidateWithFailedGate(t *testing.T) {
+	f := &fakeExecutor{outputs: []CallResult{
+		{Output: "draft"},
+		{Output: "critique"},
+		{Output: "fixed1"},
+		{Output: "FAIL\nblocking issue"},
+		{Output: "fixed2"},
+		{Output: "FAIL\nstill blocked"},
+	}}
+	e := Engine{Registry: NewRegistry(), Executor: f, Verdicts: StrictVerdictParser{}}
+	ex, err := e.Run(context.Background(), CodingReviewModel, Request{ID: "x", Input: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ex.Status != ExecutionCompleted || ex.FinalResult != "fixed2" || ex.Review.Status != "FAIL" || ex.Error != "workflow_review_limit" {
+		t.Fatalf("unexpected review-limit execution: %+v", ex)
+	}
+	if len(f.calls) != 6 {
+		t.Fatalf("calls=%d", len(f.calls))
+	}
+}
+
+func TestStepFailureFailsExecution(t *testing.T) {
+	f := &fakeExecutor{outputs: []CallResult{{Output: "draft"}, {Output: "unused"}}, errAt: 2}
+	e := Engine{Registry: NewRegistry(), Executor: f, Verdicts: StrictVerdictParser{}}
+	ex, err := e.Run(context.Background(), CodingReviewModel, Request{ID: "x", Input: "task"})
+	if err == nil || ex.Status != ExecutionFailed || ex.Error != "boom" {
+		t.Fatalf("expected step failure, ex=%+v err=%v", ex, err)
+	}
+	if len(ex.Steps) != 2 || ex.Steps[1].Status != StepFailed {
+		t.Fatalf("unexpected steps: %+v", ex.Steps)
+	}
+}
+
+func TestCancellationStopsBeforeModelCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	f := &fakeExecutor{outputs: []CallResult{{Output: "unexpected"}}}
+	e := Engine{Registry: NewRegistry(), Executor: f, Verdicts: StrictVerdictParser{}}
+	ex, err := e.Run(ctx, CodingReviewModel, Request{ID: "x", Input: "task"})
+	if !errors.Is(err, context.Canceled) || ex.Status != ExecutionCancelled {
+		t.Fatalf("expected cancellation, ex=%+v err=%v", ex, err)
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("executor calls=%d", len(f.calls))
+	}
+}
+
 func TestInvalidReviewerVerdictFailsClosed(t *testing.T) {
 	f := &fakeExecutor{outputs: []CallResult{{Output: "draft"}, {Output: "critique"}, {Output: "fixed"}, {Output: "maybe"}}}
 	e := Engine{Registry: NewRegistry(), Executor: f, Verdicts: StrictVerdictParser{}}
