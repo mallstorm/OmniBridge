@@ -14,7 +14,7 @@ jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
-      - name: Keep only three newest Actions artifacts
+      - name: Keep only three newest Actions artifacts and clear caches
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,11 +44,32 @@ jobs:
           active="$(jq '[.[] | select(.expired == false)] | sort_by(.created_at) | reverse' <<<"${artifacts}")"
           total="$(jq 'length' <<<"${active}")"
           echo "Active artifacts before cleanup: ${total}"
-
           jq -r '.[3:][] | [.id, .name, .size_in_bytes, .created_at] | @tsv' <<<"${active}" | while IFS=$'\t' read -r id name size created; do
             echo "Deleting artifact ${id}: ${name} (${size} bytes, ${created})"
             curl -fsSL -X DELETE "${headers[@]}" "${api}/actions/artifacts/${id}"
           done
 
+          caches='[]'
+          page=1
+          while true; do
+            response="$(curl -fsSL "${headers[@]}" "${api}/actions/caches?per_page=100&page=${page}")"
+            batch="$(jq '.actions_caches' <<<"${response}")"
+            count="$(jq 'length' <<<"${batch}")"
+            caches="$(jq -s '.[0] + .[1]' <(printf '%s' "${caches}") <(printf '%s' "${batch}"))"
+            if [ "${count}" -lt 100 ]; then
+              break
+            fi
+            page=$((page + 1))
+          done
+
+          cache_total="$(jq 'length' <<<"${caches}")"
+          cache_bytes="$(jq '[.[].size_in_bytes] | add // 0' <<<"${caches}")"
+          echo "Actions caches before cleanup: ${cache_total} (${cache_bytes} bytes)"
+          jq -r '.[].id' <<<"${caches}" | while read -r cache_id; do
+            [ -n "${cache_id}" ] || continue
+            echo "Deleting Actions cache ${cache_id}"
+            curl -fsSL -X DELETE "${headers[@]}" "${api}/actions/caches/${cache_id}"
+          done
+
           remaining=$(( total < 3 ? total : 3 ))
-          echo "Artifacts retained: ${remaining}"
+          echo "Artifacts retained: ${remaining}; Actions caches retained: 0"
