@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,12 +24,18 @@ const (
 	StepFailed         StepStatus      = "FAILED"
 )
 
-type ReviewIssue struct{ Severity, Category, Description, Suggestion string }
+type ReviewIssue struct {
+	Severity    string `json:"severity,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Description string `json:"description,omitempty"`
+	Suggestion  string `json:"suggestion,omitempty"`
+}
+
 type ReviewVerdict struct {
-	Status  string
-	Score   int
-	Issues  []ReviewIssue
-	Summary string
+	Status  string        `json:"status"`
+	Score   int           `json:"score,omitempty"`
+	Issues  []ReviewIssue `json:"issues,omitempty"`
+	Summary string        `json:"summary,omitempty"`
 }
 
 type StepResult struct {
@@ -46,6 +53,7 @@ type Execution struct {
 	StartedAt, FinishedAt              time.Time
 	Steps                              []StepResult
 	Review                             ReviewVerdict
+	PersistenceError                   string `json:"persistence_error,omitempty"`
 }
 
 type Request struct{ ID string; Input string }
@@ -68,10 +76,10 @@ type CallResult struct {
 type Executor interface{ Execute(context.Context, Call) (CallResult, error) }
 type VerdictParser interface{ Parse(string) (ReviewVerdict, error) }
 
-// Recorder is an optional persistence/telemetry hook. Engine correctness does
-// not depend on persistence; recorder failures are returned only when the
-// workflow itself otherwise succeeded, so a storage outage is observable but
-// never masks the primary model/runtime error.
+// Recorder is an optional persistence/telemetry hook. Engine correctness and
+// successful data-plane delivery do not depend on persistence. Recorder errors
+// are retained in Execution.PersistenceError instead of replacing a completed
+// model result with a storage failure.
 type Recorder interface{ Save(Execution) error }
 
 type Engine struct {
@@ -105,8 +113,8 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 			ex.FinishedAt = time.Now()
 		}
 		if recorder != nil && ex.ID != "" {
-			if err := recorder.Save(ex); err != nil && runErr == nil {
-				runErr = fmt.Errorf("workflow_persistence_failed: %w", err)
+			if err := recorder.Save(ex); err != nil {
+				ex.PersistenceError = err.Error()
 			}
 		}
 	}()
@@ -199,6 +207,9 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 		}
 	}
 
+	// Review-limit exhaustion still returns the best last candidate, but records
+	// an explicit failed quality gate. The data plane can return the candidate
+	// while admin history makes the non-PASS outcome unambiguous.
 	ex.Status = ExecutionCompleted
 	ex.FinalResult = candidate
 	ex.FinishedAt = time.Now()
@@ -234,12 +245,33 @@ type StrictVerdictParser struct{}
 
 func (StrictVerdictParser) Parse(v string) (ReviewVerdict, error) {
 	t := strings.TrimSpace(v)
-	upper := strings.ToUpper(t)
-	if strings.HasPrefix(upper, "PASS") {
+	if t == "" {
+		return ReviewVerdict{}, errors.New("reviewer verdict is empty")
+	}
+
+	// Structured output is accepted when available, but orchestration does not
+	// depend on JSON mode because many compatible providers do not expose it.
+	if strings.HasPrefix(t, "{") {
+		var verdict ReviewVerdict
+		if err := json.Unmarshal([]byte(t), &verdict); err == nil {
+			verdict.Status = strings.ToUpper(strings.TrimSpace(verdict.Status))
+			if verdict.Status == "PASS" || verdict.Status == "FAIL" {
+				return verdict, nil
+			}
+		}
+	}
+
+	fields := strings.Fields(t)
+	if len(fields) == 0 {
+		return ReviewVerdict{}, errors.New("reviewer verdict is empty")
+	}
+	first := strings.ToUpper(strings.Trim(fields[0], ":;,.!?[](){}"))
+	switch first {
+	case "PASS":
 		return ReviewVerdict{Status: "PASS", Summary: t}, nil
-	}
-	if strings.HasPrefix(upper, "FAIL") {
+	case "FAIL":
 		return ReviewVerdict{Status: "FAIL", Summary: t}, nil
+	default:
+		return ReviewVerdict{}, errors.New("reviewer must start response with exact PASS or FAIL")
 	}
-	return ReviewVerdict{}, errors.New("reviewer must start response with PASS or FAIL")
 }
