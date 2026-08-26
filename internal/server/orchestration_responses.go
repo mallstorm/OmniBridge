@@ -30,6 +30,7 @@ func (s *Server) handleWorkflowResponses(w http.ResponseWriter, r *http.Request,
 
 	executionID := fmt.Sprintf("wf-%d", time.Now().UnixNano())
 	ex, err := newOrchestrationEngine(s).Run(r.Context(), model, orchestration.Request{ID: executionID, Input: input})
+	annotateWorkflowExecution(r.Context(), ex)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || r.Context().Err() != nil {
 			return
