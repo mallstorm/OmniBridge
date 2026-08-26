@@ -36,6 +36,7 @@ jobs:
       - name: Build Windows x64
         shell: pwsh
         run: ./scripts/build-release.ps1 -Root $PWD
+      # Rolling policy: preserve two existing artifacts, then upload this run as the third.
       - name: Prune old build artifacts
         shell: pwsh
         env:
@@ -58,7 +59,6 @@ jobs:
           } while ($batch.Count -eq 100)
 
           $ordered = @($all | Where-Object { -not $_.expired } | Sort-Object {[datetime]$_.created_at} -Descending)
-          # Keep two existing artifacts; the artifact produced by this run becomes the third retained build.
           $toDelete = @($ordered | Select-Object -Skip 2)
           Write-Host "Artifacts found: $($ordered.Count); deleting: $($toDelete.Count); preserving before upload: $([Math]::Min(2, $ordered.Count))"
           foreach ($artifact in $toDelete) {
