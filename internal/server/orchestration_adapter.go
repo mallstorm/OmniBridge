@@ -165,7 +165,7 @@ func roleDefaultModel(role orchestration.Role) string {
 func orchestrationChatBody(model string, call orchestration.Call) ([]byte, error) {
 	system := orchestrationRolePrompt(call.Step.Role)
 	payload := map[string]any{
-		"model": model,
+		"model":  model,
 		"stream": false,
 		"messages": []map[string]any{
 			{"role": "system", "content": system},
@@ -260,4 +260,204 @@ func extractChatCompletionText(raw []byte) (string, error) {
 	default:
 		return "", errors.New("chat completion content has unsupported shape")
 	}
+}
+
+func (s *Server) orchestrationModelEntries() []map[string]any {
+	workflows := orchestration.NewRegistry().List()
+	out := make([]map[string]any, 0, len(workflows))
+	for _, wf := range workflows {
+		out = append(out, map[string]any{
+			"id":       wf.ID,
+			"object":   "model",
+			"owned_by": "omnibridge-orchestration",
+			"type":     "workflow",
+		})
+	}
+	return out
+}
+
+func (s *Server) orchestrationStatus(w http.ResponseWriter, r *http.Request) {
+	registry := orchestration.NewRegistry()
+	jsonOut(w, http.StatusOK, map[string]any{
+		"version":   "1",
+		"enabled":   true,
+		"workflows": len(registry.List()),
+		"models":    s.orchestrationModelEntries(),
+		"scope": map[string]any{
+			"project_memory":                false,
+			"multi_agent_workspace_editing": false,
+			"visual_workflow_editor":         false,
+		},
+	})
+}
+
+func (s *Server) orchestrationWorkflows(w http.ResponseWriter, r *http.Request) {
+	jsonOut(w, http.StatusOK, orchestration.NewRegistry().List())
+}
+
+func (s *Server) orchestrationEvaluate(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Workflow string `json:"workflow"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(in.Workflow) == "" {
+		in.Workflow = orchestration.CodingReviewModel
+	}
+	wf, ok := orchestration.NewRegistry().Get(in.Workflow)
+	if !ok {
+		jsonOut(w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "workflow not found", "type": "workflow_not_found", "code": "workflow_not_found"}})
+		return
+	}
+	steps := make([]map[string]any, 0, len(wf.Steps))
+	for _, step := range wf.Steps {
+		req := obr.Requirements{Reasoning: step.Selector.PreferReasoning, ToolCalling: step.Selector.RequireTools, RequiresDoctorProof: step.Selector.RequireDoctorProof}
+		selector := step.Selector.Model
+		if strings.TrimSpace(selector) == "" {
+			selector = roleDefaultModel(step.Role)
+		}
+		models, err := s.routingCandidatesForRequest(selector, "", req)
+		ids := make([]string, 0, len(models))
+		for _, m := range models {
+			ids = append(ids, m.ID)
+		}
+		entry := map[string]any{"id": step.ID, "role": step.Role, "selector": selector, "candidates": ids, "permission": step.Permission}
+		if err != nil {
+			entry["error"] = err.Error()
+		}
+		steps = append(steps, entry)
+	}
+	jsonOut(w, http.StatusOK, map[string]any{"workflow": wf.ID, "version": wf.Version, "policy": wf.Policy, "steps": steps, "dry_run": true})
+}
+
+// handleWorkflowProxy intercepts only explicit workflow/* models. It returns
+// true when the request belongs to orchestration and has been fully handled.
+func (s *Server) handleWorkflowProxy(w http.ResponseWriter, r *http.Request, apiType string, body []byte, model string) bool {
+	if !orchestration.IsWorkflowModel(model) {
+		return false
+	}
+	if apiType != "chat-completions" {
+		jsonOut(w, http.StatusNotImplemented, map[string]any{"error": map[string]any{"message": "workflow models currently support /v1/chat/completions only", "type": "workflow_protocol_not_supported", "code": "workflow_protocol_not_supported"}})
+		return true
+	}
+
+	canonical, err := protocol.ParseRequest(protocol.ChatCompletions, body)
+	if err != nil {
+		jsonOut(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"message": err.Error(), "type": "workflow_request_invalid", "code": "workflow_request_invalid"}})
+		return true
+	}
+	if len(canonical.Tools) > 0 {
+		jsonOut(w, http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "workspace/tool execution is intentionally outside orchestration v1", "type": "workflow_tools_not_supported", "code": "workflow_tools_not_supported"}})
+		return true
+	}
+	input := canonicalWorkflowInput(canonical)
+	if strings.TrimSpace(input) == "" {
+		jsonOut(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"message": "workflow request contains no textual input", "type": "workflow_request_invalid", "code": "workflow_request_invalid"}})
+		return true
+	}
+
+	executionID := fmt.Sprintf("wf-%d", time.Now().UnixNano())
+	ex, err := newOrchestrationEngine(s).Run(r.Context(), model, orchestration.Request{ID: executionID, Input: input})
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || r.Context().Err() != nil {
+			return true
+		}
+		code := "workflow_failed"
+		status := http.StatusBadGateway
+		if strings.Contains(err.Error(), "workflow_not_found") {
+			code, status = "workflow_not_found", http.StatusNotFound
+		} else if strings.Contains(err.Error(), "workflow_no_candidate") {
+			code, status = "workflow_no_candidate", http.StatusUnprocessableEntity
+		}
+		jsonOut(w, status, map[string]any{"error": map[string]any{"message": err.Error(), "type": code, "code": code}, "execution_id": ex.ID})
+		return true
+	}
+
+	response := workflowChatCompletion(model, ex)
+	if canonical.Stream {
+		sse, sseErr := protocol.SyntheticSSE(protocol.ChatCompletions, response)
+		if sseErr != nil {
+			jsonOut(w, http.StatusBadGateway, map[string]any{"error": map[string]any{"message": sseErr.Error(), "type": "workflow_stream_encode_failed", "code": "workflow_stream_encode_failed"}})
+			return true
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(sse)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		return true
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-OmniBridge-Workflow-Execution", ex.ID)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(response)
+	return true
+}
+
+func canonicalWorkflowInput(req protocol.CanonicalRequest) string {
+	var b strings.Builder
+	if strings.TrimSpace(req.System) != "" {
+		b.WriteString("System context:\n")
+		b.WriteString(strings.TrimSpace(req.System))
+		b.WriteString("\n\n")
+	}
+	for _, message := range req.Messages {
+		text := canonicalPartsText(message.Parts)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		b.WriteString(strings.ToUpper(message.Role))
+		b.WriteString(":\n")
+		b.WriteString(text)
+		b.WriteString("\n\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func canonicalPartsText(parts []protocol.CanonicalPart) string {
+	var b strings.Builder
+	for _, part := range parts {
+		if strings.TrimSpace(part.Text) == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(part.Text)
+	}
+	return b.String()
+}
+
+func workflowChatCompletion(model string, ex orchestration.Execution) []byte {
+	var inputTokens, outputTokens, totalTokens int64
+	for _, step := range ex.Steps {
+		inputTokens += step.InputTokens
+		outputTokens += step.OutputTokens
+		totalTokens += step.TotalTokens
+	}
+	if totalTokens == 0 {
+		totalTokens = inputTokens + outputTokens
+	}
+	payload := map[string]any{
+		"id":      ex.ID,
+		"object":  "chat.completion",
+		"created": time.Now().Unix(),
+		"model":   model,
+		"choices": []map[string]any{{
+			"index":         0,
+			"message":       map[string]any{"role": "assistant", "content": ex.FinalResult},
+			"finish_reason": "stop",
+		}},
+		"usage": map[string]any{
+			"prompt_tokens":     inputTokens,
+			"completion_tokens": outputTokens,
+			"total_tokens":      totalTokens,
+		},
+	}
+	out, _ := json.Marshal(payload)
+	return out
 }
