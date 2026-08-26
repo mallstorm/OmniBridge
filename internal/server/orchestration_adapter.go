@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"omnibridge/internal/contextguard"
 	"omnibridge/internal/orchestration"
 	"omnibridge/internal/protocol"
 	"omnibridge/internal/providers"
@@ -38,6 +39,16 @@ func (x orchestrationExecutor) Execute(ctx context.Context, call orchestration.C
 	}
 	if err := ctx.Err(); err != nil {
 		return orchestration.CallResult{}, err
+	}
+
+	// Re-check hard budget before every orchestration step. Execute is invoked
+	// separately for Developer, Critic, Fixer and each Reviewer iteration, so a
+	// workflow cannot continue spending after an earlier step exhausted budget.
+	if x.server.QuotaCost != nil {
+		x.server.QuotaCost.UpdateConfig(x.server.Config.Get().QuotaCost)
+		if reject, reason := x.server.QuotaCost.ShouldRejectForBudget(); reject {
+			return orchestration.CallResult{}, fmt.Errorf("workflow_budget_exceeded: %s", reason)
+		}
 	}
 
 	selector := strings.TrimSpace(call.Step.Selector.Model)
@@ -76,11 +87,25 @@ func (x orchestrationExecutor) Execute(ctx context.Context, call orchestration.C
 		if err := ctx.Err(); err != nil {
 			return orchestration.CallResult{}, err
 		}
+
+		// Apply the existing Context Guard only after routing, when the concrete
+		// model context window is known. Each fallback candidate is evaluated
+		// independently because context limits may differ between providers.
+		candidateBody := body
+		if x.server.Config != nil {
+			guarded, _, guardErr := contextguard.Apply(body, "chat-completions", candidate.ContextWindow, x.server.Config.Get().ContextGuard)
+			if guardErr != nil {
+				lastErr = fmt.Errorf("context guard failed for %s: %w", candidate.ID, guardErr)
+				continue
+			}
+			candidateBody = guarded
+		}
+
 		if !x.server.acquireModelResilience(candidate) {
 			continue
 		}
 		started := time.Now()
-		result, class, err := x.executeCandidate(ctx, candidate, body)
+		result, class, err := x.executeCandidate(ctx, candidate, candidateBody)
 		if err == nil {
 			x.server.recordResilienceSuccess(candidate)
 			x.server.recordUsageCost(ctx, candidate, false, result.InputTokens, result.OutputTokens, result.TotalTokens, time.Since(started).Milliseconds())
@@ -279,7 +304,7 @@ func (s *Server) orchestrationModelEntries() []map[string]any {
 func (s *Server) orchestrationStatus(w http.ResponseWriter, r *http.Request) {
 	registry := orchestration.NewRegistry()
 	jsonOut(w, http.StatusOK, map[string]any{
-		"version":   "1",
+		"version":   "1.1",
 		"enabled":   true,
 		"workflows": len(registry.List()),
 		"models":    s.orchestrationModelEntries(),
@@ -319,11 +344,21 @@ func (s *Server) orchestrationEvaluate(w http.ResponseWriter, r *http.Request) {
 			selector = roleDefaultModel(step.Role)
 		}
 		models, err := s.routingCandidatesForRequest(selector, "", req)
-		ids := make([]string, 0, len(models))
-		for _, m := range models {
-			ids = append(ids, m.ID)
+		candidates := make([]map[string]any, 0, len(models))
+		for i, m := range models {
+			candidates = append(candidates, map[string]any{
+				"rank": i + 1, "model": m.ID, "provider": m.ProviderID, "context_window": m.ContextWindow,
+			})
 		}
-		entry := map[string]any{"id": step.ID, "role": step.Role, "selector": selector, "candidates": ids, "permission": step.Permission}
+		entry := map[string]any{
+			"id": step.ID, "role": step.Role, "selector": selector, "candidates": candidates, "permission": step.Permission,
+			"requirements": map[string]any{"reasoning": req.Reasoning, "tool_calling": req.ToolCalling, "doctor_proof": req.RequiresDoctorProof},
+			"diversity_policy": wf.Policy.Diversity,
+		}
+		if len(models) > 0 {
+			entry["selected_model"] = models[0].ID
+			entry["selected_provider"] = models[0].ProviderID
+		}
 		if err != nil {
 			entry["error"] = err.Error()
 		}
@@ -370,6 +405,8 @@ func (s *Server) handleWorkflowProxy(w http.ResponseWriter, r *http.Request, api
 			code, status = "workflow_not_found", http.StatusNotFound
 		} else if strings.Contains(err.Error(), "workflow_no_candidate") {
 			code, status = "workflow_no_candidate", http.StatusUnprocessableEntity
+		} else if strings.Contains(err.Error(), "workflow_budget_exceeded") {
+			code, status = "workflow_budget_exceeded", http.StatusPaymentRequired
 		}
 		jsonOut(w, status, map[string]any{"error": map[string]any{"message": err.Error(), "type": code, "code": code}, "execution_id": ex.ID})
 		return true
