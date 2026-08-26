@@ -22,6 +22,11 @@ func (x orchestrationExecutor) Save(ex orchestration.Execution) error {
 	if err := x.server.Storage.EnsureOrchestrationSchema(); err != nil {
 		return err
 	}
+	if wf, ok := orchestration.NewRegistry().Get(ex.WorkflowID); ok {
+		if err := x.server.Storage.SaveOrchestrationWorkflow(wf.ID, wf.Version, wf.Name, wf.Enabled, wf); err != nil {
+			return err
+		}
+	}
 	review, err := json.Marshal(ex.Review)
 	if err != nil {
 		return err
