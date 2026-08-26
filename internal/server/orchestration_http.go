@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"omnibridge/internal/config"
 	"omnibridge/internal/observability"
 	"omnibridge/internal/orchestration"
 )
@@ -27,22 +27,13 @@ func (s *Server) StartOrchestrated() error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	s.Logger.Printf("OmniBridge %s listening on %s (orchestration enabled)", currentVersion(), c.Listen)
+	s.Logger.Printf("OmniBridge %s listening on %s (orchestration enabled)", config.CurrentVersion, c.Listen)
 	if isNonLoopbackListen(c.Listen) && c.Remote.Enabled {
 		s.Logger.Printf("[remote] TLS remote mode enabled; allowed CIDRs=%d", len(c.Remote.AllowedCIDRs))
 		return s.httpServer.ListenAndServeTLS(c.Remote.TLSCertPath, c.Remote.TLSKeyPath)
 	}
 	return s.httpServer.ListenAndServe()
 }
-
-// currentVersion is kept as a tiny indirection so this additive file does not
-// duplicate version constants or create a dependency outside package server.
-func currentVersion() string {
-	return configCurrentVersion()
-}
-
-// configCurrentVersion is declared in orchestration_version.go to keep this
-// file focused on HTTP concerns.
 
 // OrchestrationHandler delegates every ordinary request to the unchanged base
 // Handler. Only explicit workflow models and orchestration control endpoints
@@ -78,12 +69,14 @@ func (s *Server) OrchestrationHandler() http.Handler {
 		}
 		if isGenerationPath(r.Method, r.URL.Path) {
 			workflow, body, err := peekWorkflowRequest(r, s.Config.Get().ContextGuard.MaxRequestBytes)
+			if body != nil {
+				r.Body = io.NopCloser(bytes.NewReader(body))
+			}
 			if err != nil {
 				// Let the established handler produce the canonical request-size/JSON error.
 				base.ServeHTTP(w, r)
 				return
 			}
-			r.Body = io.NopCloser(bytes.NewReader(body))
 			if workflow {
 				special.ServeHTTP(w, r)
 				return
@@ -193,7 +186,3 @@ func (s *Server) orchestrationProxyHTTP(w http.ResponseWriter, r *http.Request, 
 		jsonOut(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"message": "request is not a workflow model", "type": "workflow_request_invalid", "code": "workflow_request_invalid"}})
 	}
 }
-
-// Keep the compile-time dependency on log explicit; StartOrchestrated mirrors
-// Server.Start's logging contract without changing existing code.
-var _ *log.Logger
