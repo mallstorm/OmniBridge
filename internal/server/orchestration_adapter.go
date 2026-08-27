@@ -76,14 +76,14 @@ func (x orchestrationExecutor) Execute(ctx context.Context, call orchestration.C
 	if err != nil {
 		return orchestration.CallResult{}, fmt.Errorf("workflow_no_candidate: %w", err)
 	}
-	candidates = applyOrchestrationDiversity(candidates, call)
+	candidates, decisions, _ := x.server.orchestrationTeamPlan(call, candidates)
 	if len(candidates) == 0 {
-		return orchestration.CallResult{}, errors.New("workflow_no_candidate: no candidate remains after routing")
+		return orchestration.CallResult{}, errors.New("workflow_no_candidate: no candidate remains after team routing policy")
 	}
 
 	x.server.refreshResilienceConfig()
 	var lastErr error
-	for _, candidate := range candidates {
+	for candidateIndex, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return orchestration.CallResult{}, err
 		}
@@ -102,6 +102,7 @@ func (x orchestrationExecutor) Execute(ctx context.Context, call orchestration.C
 		}
 
 		if !x.server.acquireModelResilience(candidate) {
+			lastErr = fmt.Errorf("candidate %s blocked by resilience policy", candidate.ID)
 			continue
 		}
 		started := time.Now()
@@ -109,6 +110,13 @@ func (x orchestrationExecutor) Execute(ctx context.Context, call orchestration.C
 		if err == nil {
 			x.server.recordResilienceSuccess(candidate)
 			x.server.recordUsageCost(ctx, candidate, false, result.InputTokens, result.OutputTokens, result.TotalTokens, time.Since(started).Milliseconds())
+			decision := decisions[candidate.ID]
+			if candidateIndex > 0 {
+				decision.Fallback = true
+				decision = appendRoutingRationale(decision, fmt.Sprintf("runtime fallback selected after %d earlier candidate(s) were unavailable or failed", candidateIndex))
+			}
+			result.Family = decision.Family
+			result.Routing = decision
 			return result, nil
 		}
 		lastErr = err
@@ -209,42 +217,10 @@ func orchestrationRolePrompt(role orchestration.Role) string {
 	case orchestration.RoleFixer:
 		return "You are the Fixer in a bounded OmniBridge workflow. Correct the candidate using the supplied critique and reviewer issues. Return only the corrected candidate."
 	case orchestration.RoleReviewer:
-		return "You are the final quality gate. Your response MUST begin with exactly PASS or FAIL. PASS means there are no blocking issues. FAIL must be followed by concrete blocking issues. Do not expose hidden chain-of-thought."
+		return "You are the final independent quality gate. Your response MUST begin with exactly PASS or FAIL. PASS means there are no blocking issues. FAIL must be followed by concrete blocking issues. Do not expose hidden chain-of-thought."
 	default:
 		return "Complete the requested workflow step."
 	}
-}
-
-func applyOrchestrationDiversity(candidates []providers.Model, call orchestration.Call) []providers.Model {
-	if call.Workflow.Policy.Diversity == orchestration.DiversityNone || len(candidates) < 2 {
-		return candidates
-	}
-	avoidProvider := make(map[string]bool, len(call.AvoidProviders))
-	avoidModel := make(map[string]bool, len(call.AvoidModels))
-	for _, id := range call.AvoidProviders {
-		avoidProvider[id] = true
-	}
-	for _, id := range call.AvoidModels {
-		avoidModel[id] = true
-	}
-	preferred := make([]providers.Model, 0, len(candidates))
-	fallback := make([]providers.Model, 0, len(candidates))
-	for _, m := range candidates {
-		avoid := false
-		switch call.Workflow.Policy.Diversity {
-		case orchestration.DiversityProvider, orchestration.DiversityFamily:
-			avoid = avoidProvider[m.ProviderID]
-		case orchestration.DiversityModel:
-			avoid = avoidModel[m.ID]
-		}
-		if avoid {
-			fallback = append(fallback, m)
-		} else {
-			preferred = append(preferred, m)
-		}
-	}
-	// Diversity is a preference, not a hard availability gate.
-	return append(preferred, fallback...)
 }
 
 func extractChatCompletionText(raw []byte) (string, error) {
@@ -304,10 +280,16 @@ func (s *Server) orchestrationModelEntries() []map[string]any {
 func (s *Server) orchestrationStatus(w http.ResponseWriter, r *http.Request) {
 	registry := orchestration.NewRegistry()
 	jsonOut(w, http.StatusOK, map[string]any{
-		"version":   "1.1",
+		"version":   "1.2-team-routing",
 		"enabled":   true,
 		"workflows": len(registry.List()),
 		"models":    s.orchestrationModelEntries(),
+		"team_routing": map[string]any{
+			"enabled": true,
+			"role_profiles": []string{"developer", "critic", "fixer", "judge"},
+			"quota_cost_aware": true,
+			"diversity": []string{"provider", "family", "model"},
+		},
 		"scope": map[string]any{
 			"project_memory":                false,
 			"multi_agent_workspace_editing": false,
@@ -336,35 +318,67 @@ func (s *Server) orchestrationEvaluate(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "workflow not found", "type": "workflow_not_found", "code": "workflow_not_found"}})
 		return
 	}
+
 	steps := make([]map[string]any, 0, len(wf.Steps))
+	usedProviders, usedFamilies, usedModels := []string{}, []string{}, []string{}
 	for _, step := range wf.Steps {
 		req := obr.Requirements{Reasoning: step.Selector.PreferReasoning, ToolCalling: step.Selector.RequireTools, RequiresDoctorProof: step.Selector.RequireDoctorProof}
 		selector := step.Selector.Model
 		if strings.TrimSpace(selector) == "" {
 			selector = roleDefaultModel(step.Role)
 		}
-		models, err := s.routingCandidatesForRequest(selector, "", req)
-		candidates := make([]map[string]any, 0, len(models))
-		for i, m := range models {
+		models, routeErr := s.routingCandidatesForRequest(selector, "", req)
+		call := orchestration.Call{
+			Workflow:       wf,
+			Step:           step,
+			AvoidProviders: append([]string(nil), usedProviders...),
+			AvoidFamilies:  append([]string(nil), usedFamilies...),
+			AvoidModels:    append([]string(nil), usedModels...),
+		}
+		ordered, decisions, plan := s.orchestrationTeamPlan(call, models)
+		candidates := make([]map[string]any, 0, len(ordered))
+		for _, m := range ordered {
+			d := decisions[m.ID]
 			candidates = append(candidates, map[string]any{
-				"rank": i + 1, "model": m.ID, "provider": m.ProviderID, "context_window": m.ContextWindow,
+				"rank": d.CandidateRank,
+				"model": m.ID,
+				"provider": m.ProviderID,
+				"family": d.Family,
+				"fallback": d.Fallback,
+				"quota_known": d.QuotaKnown,
+				"quota_remaining": d.QuotaRemaining,
+				"cost_known": d.CostKnown,
+				"cost_per_m_tokens": d.CostPerMTokens,
+				"rationale": d.Rationale,
 			})
 		}
 		entry := map[string]any{
-			"id": step.ID, "role": step.Role, "selector": selector, "candidates": candidates, "permission": step.Permission,
+			"id": step.ID,
+			"role": step.Role,
+			"profile": plan.Profile.Name,
+			"selector": selector,
+			"candidates": candidates,
+			"permission": step.Permission,
 			"requirements": map[string]any{"reasoning": req.Reasoning, "tool_calling": req.ToolCalling, "doctor_proof": req.RequiresDoctorProof},
-			"diversity_policy": wf.Policy.Diversity,
+			"team_policy": plan.Policy,
 		}
-		if len(models) > 0 {
-			entry["selected_model"] = models[0].ID
-			entry["selected_provider"] = models[0].ProviderID
+		if len(ordered) > 0 {
+			selected := ordered[0]
+			d := decisions[selected.ID]
+			entry["selected_model"] = selected.ID
+			entry["selected_provider"] = selected.ProviderID
+			entry["selected_family"] = d.Family
+			entry["selection_rationale"] = d.Rationale
+			usedProviders = appendUnique(usedProviders, selected.ProviderID)
+			usedFamilies = appendUnique(usedFamilies, d.Family)
+			usedModels = appendUnique(usedModels, selected.ID)
 		}
-		if err != nil {
-			entry["error"] = err.Error()
+		if routeErr != nil {
+			entry["error"] = routeErr.Error()
 		}
 		steps = append(steps, entry)
 	}
-	jsonOut(w, http.StatusOK, map[string]any{"workflow": wf.ID, "version": wf.Version, "policy": wf.Policy, "steps": steps, "dry_run": true})
+	jsonOut(w, http.StatusOK, map[string]any{"workflow": wf.ID, "version": wf.Version, "policy": wf.Policy, "steps": steps, "dry_run": true, "team_routing_version": "1.0"})
 }
 
 // handleWorkflowProxy intercepts only explicit workflow/* models. It returns
