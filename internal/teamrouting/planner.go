@@ -98,6 +98,9 @@ func DefaultPolicy() Policy {
 	}
 }
 
+// InferFamily returns a provider-independent family for well-known model lines,
+// so the planner can distinguish provider diversity from model-family diversity.
+// Unknown names are provider-scoped to avoid false cross-provider correlation.
 func InferFamily(providerID, nativeID, qualifiedID string) string {
 	provider := strings.ToLower(strings.TrimSpace(providerID))
 	id := strings.ToLower(strings.TrimSpace(nativeID))
@@ -122,14 +125,14 @@ func InferFamily(providerID, nativeID, qualifiedID string) string {
 	}
 	for _, p := range patterns {
 		if strings.Contains(id, p.needle) {
-			return joinFamily(provider, p.family)
+			return p.family
 		}
 	}
 	if strings.HasPrefix(id, "gpt-") || strings.HasPrefix(id, "chatgpt-") {
-		return joinFamily(provider, "gpt")
+		return "gpt"
 	}
 	if strings.HasPrefix(id, "o1") || strings.HasPrefix(id, "o3") || strings.HasPrefix(id, "o4") {
-		return joinFamily(provider, "o-series")
+		return "o-series"
 	}
 	base := id
 	if i := strings.IndexAny(base, "-:._"); i > 0 {
@@ -138,14 +141,10 @@ func InferFamily(providerID, nativeID, qualifiedID string) string {
 	if base == "" {
 		base = "unknown"
 	}
-	return joinFamily(provider, base)
-}
-
-func joinFamily(provider, family string) string {
 	if provider == "" {
-		return family
+		return base
 	}
-	return provider + ":" + family
+	return provider + ":" + base
 }
 
 func Rank(candidates []Candidate, profile Profile, history History, policy Policy) Plan {
