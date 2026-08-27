@@ -19,10 +19,11 @@ func TestOrchestrationExecutorRejectsExceededBudgetBeforeRoleCall(t *testing.T) 
 		t.Fatal(err)
 	}
 	qcfg := config.QuotaCostConfig{
-		Enabled:         true,
-		LowQuotaPercent: 10,
-		RejectOnBudget:  true,
-		Budget:          config.BudgetConfig{SessionUSD: 0.000001},
+		Enabled:             true,
+		LowQuotaPercent:     10,
+		RejectOnBudget:      true,
+		Budget:              config.BudgetConfig{SessionUSD: 0.000001},
+		PricingRefreshHours: 24,
 	}
 	if err := cfg.SetQuotaCost(qcfg); err != nil {
 		t.Fatal(err)
