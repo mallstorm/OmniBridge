@@ -119,3 +119,67 @@ func TestGigaAgentStreamingPayloadRestoresToolNameAndState(t *testing.T) {
 		t.Fatalf("stream tool id round-trip failed: state=%q alias=%q ok=%v", decodedState, decodedAlias, ok)
 	}
 }
+
+func TestGigaAgentFragmentedStreamingKeepsStableToolID(t *testing.T) {
+	orig := "read_file"
+	alias := safeGigaAlias(orig)
+	state := "fragment-state"
+	tr := newGigaStreamTranslator()
+	reverse := map[string]string{alias: orig}
+
+	chunks := []map[string]any{
+		{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"functions_state_id": state}}}},
+		{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"function_call": map[string]any{"name": alias}}}}},
+		{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"function_call": map[string]any{"arguments": `{"path":`}}}}},
+		{"choices": []any{map[string]any{"index": 0, "finish_reason": "function_call", "delta": map[string]any{"function_call": map[string]any{"arguments": `"README.md"}`}}}}},
+	}
+
+	var ids []string
+	for _, chunk := range chunks {
+		raw, _ := json.Marshal(chunk)
+		out, err := tr.Translate(raw, reverse)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		_ = json.Unmarshal(out, &got)
+		choice := got["choices"].([]any)[0].(map[string]any)
+		delta, _ := choice["delta"].(map[string]any)
+		calls, _ := delta["tool_calls"].([]any)
+		if len(calls) == 0 {
+			continue
+		}
+		call := calls[0].(map[string]any)
+		ids = append(ids, call["id"].(string))
+		fn := call["function"].(map[string]any)
+		if fn["name"] != orig {
+			t.Fatalf("fragment tool name=%v", fn["name"])
+		}
+	}
+	if len(ids) != 3 {
+		t.Fatalf("translated tool chunks=%d want=3", len(ids))
+	}
+	for _, id := range ids {
+		if id != ids[0] {
+			t.Fatalf("unstable tool id: %v", ids)
+		}
+		gotState, gotAlias, ok := decodeGigaToolID(id)
+		if !ok || gotState != state || gotAlias != alias {
+			t.Fatalf("bad fragmented id state=%q alias=%q ok=%v", gotState, gotAlias, ok)
+		}
+	}
+}
+
+func TestNormalizeGigaAgentToolResultsSerializesStructuredContent(t *testing.T) {
+	body := []byte(`{"model":"giga/GigaChat","messages":[{"role":"tool","tool_call_id":"x","content":{"path":"README.md","lines":[1,2]}}]}`)
+	out := normalizeGigaAgentToolResults(body)
+	var req map[string]any
+	if err := json.Unmarshal(out, &req); err != nil {
+		t.Fatal(err)
+	}
+	msg := req["messages"].([]any)[0].(map[string]any)
+	content, ok := msg["content"].(string)
+	if !ok || !json.Valid([]byte(content)) || !strings.Contains(content, "README.md") {
+		t.Fatalf("structured tool content not serialized: %#v", msg["content"])
+	}
+}
