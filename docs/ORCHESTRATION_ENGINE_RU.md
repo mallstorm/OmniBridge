@@ -1,145 +1,153 @@
-# OmniBridge Orchestration Engine v1
+# OmniBridge Orchestration Engine v1.1
 
-## Цель
+## Назначение
 
-Orchestration Engine добавляет поверх существующих Protocol Engine, Router и Provider Engine управляемые multi-model workflows. Обычные модели продолжают использовать прежний pipeline без изменений.
+Orchestration Engine добавляет поверх существующих Protocol Engine, Router, Resilience, Context Guard, Quota/Cost и Provider/Account Engine управляемые multi-model workflows. Обычные модели продолжают использовать прежний data-plane pipeline без изменения поведения.
 
-Первый встроенный workflow: `workflow/coding-review`.
+Первый встроенный workflow:
 
 ```text
+workflow/coding-review
+
 Developer -> Critic -> Fixer -> Reviewer
                          ^          |
                          |-- FAIL --|
 ```
 
-Reviewer является fail-closed quality gate. Число циклов Fixer/Reviewer ограничено `max_iterations=2`.
+Reviewer является fail-closed quality gate. Цикл Fixer/Reviewer ограничен `max_iterations=2`.
 
-## Границы первого этапа
+## Границы v1.1
 
-В этот этап намеренно не входят:
+Намеренно НЕ входят:
 
 - Project Memory;
 - Multi-Agent Workspace Editing;
-- визуальный редактор Workflows.
+- визуальный Workflow Editor.
 
-Orchestration v1 координирует model calls; он не исполняет workspace tools вместо IDE/Agent Harness. Запрос `workflow/*` с tools в первой версии отклоняется явной ошибкой `workflow_tools_not_supported`, чтобы не создавать ложную или небезопасную автономность.
+Workflow координирует model calls, но не исполняет workspace tools вместо IDE/Agent Harness. Запросы `workflow/*` с tools отклоняются `workflow_tools_not_supported`.
 
 ## Архитектура
 
 ```text
 Client
-  -> OmniBridge data plane
+  -> Chat Completions / Responses / Messages
   -> workflow/coding-review
   -> Orchestration Engine
   -> existing Router
+  -> per-candidate Context Guard
   -> existing Resilience
   -> existing Protocol Engine
   -> existing Provider / Account Engine
 ```
 
-`internal/orchestration` не содержит OpenAI/Anthropic/GigaChat-клиентов и не имеет собственного routing engine.
+`internal/orchestration` остаётся provider-neutral: там нет OpenAI/Anthropic/GigaChat clients и нет отдельного routing engine.
 
-`internal/server/orchestration_adapter.go` реализует provider-neutral `orchestration.Executor` поверх существующих server contracts: `routingCandidatesForRequest`, resilience state machine, `upstream`, Protocol Engine translation и общую usage/cost telemetry.
+`internal/server/orchestration_adapter.go` реализует `orchestration.Executor` поверх существующих `routingCandidatesForRequest`, Context Guard, resilience, `upstream`, Protocol Engine и usage/cost telemetry.
 
 ## Backward compatibility
 
-В production runtime используется `Server.StartOrchestrated()`. Он оборачивает существующий `Server.Handler()` тонким orchestration-aware router.
+Production runtime использует `Server.StartOrchestrated()`, который оборачивает существующий `Server.Handler()` тонким router-слоем.
 
-Только следующие запросы обрабатываются новым слоем:
+Перехватываются только:
 
-- `GET /v1/models` — для публикации workflow virtual models;
-- явные `model=workflow/*` на generation endpoints;
-- `/bridge/orchestration*` diagnostics/admin API.
+- `GET /v1/models` для публикации workflow virtual models;
+- generation requests с явным `model=workflow/*`;
+- `/bridge/orchestration*`;
+- `/bridge/agent-compatibility*` diagnostics.
 
-Все обычные модели делегируются исходному `Server.Handler()` без изменения прежнего proxy/routing/provider pipeline.
+Любая обычная модель делегируется исходному `Server.Handler()`.
 
-## Domain
+## Public protocol parity
 
-`internal/orchestration` содержит workflow/step/role/policy, registry, execution state, strict review verdict, Recorder contract и независимый от провайдеров Executor contract.
+`workflow/coding-review` доступен через три внешних dialect:
 
-Роли:
+```text
+POST /v1/chat/completions
+POST /v1/responses
+POST /v1/messages
+```
 
-- `developer` — создаёт исходный candidate;
-- `critic` — ищет конкретные дефекты и пропуски;
+Все три endpoint используют один и тот же Orchestration Engine и один provider-neutral execution state. Responses и Messages не имеют отдельных workflow engines.
+
+`stream=true` поддерживается как synthetic final SSE через существующий Protocol Engine: внутренние Developer/Critic/Fixer/Reviewer ответы наружу не раскрываются и не стримятся.
+
+## Roles и routing
+
+Встроенные роли:
+
+- `developer` — создаёт candidate;
+- `critic` — выявляет конкретные дефекты;
 - `fixer` — исправляет candidate;
-- `reviewer` — выдаёт строгий `PASS` или `FAIL`.
+- `reviewer` — возвращает строгий `PASS` или `FAIL`.
 
-Reviewer verdict работает fail-closed. Plain-text verdict должен начинаться с отдельного точного токена `PASS` или `FAIL`; строки вроде `PASSING` и `FAILURE` не принимаются. Также parser понимает структурированный JSON verdict с полем `status`, но workflow не зависит от наличия JSON mode у provider.
-
-## Routing и diversity
-
-Каждая роль использует существующие виртуальные Router profiles:
+Role selectors по умолчанию:
 
 - Developer/Fixer -> `auto/coding`;
 - Critic -> `auto/reasoning`;
-- Reviewer -> `auto/smart` с Doctor proof preference.
+- Reviewer -> `auto/smart`.
 
-Diversity policy допускает `none`, `provider`, `family`, `model`; для `coding-review` используется preference `provider`. Это preference, а не hard gate: если подходит только один provider, workflow продолжает работу.
+Конкретная модель всегда выбирается существующим Router с Doctor/capability/context/health/quota/cost сигналами.
 
-`family` в v1 оставлен как контракт расширения; пока при отсутствии отдельного model-family registry он деградирует до provider-level preference.
+## Reviewer contract
 
-## Public model contract
+Reviewer работает fail-closed. Допустимы только точные verdict tokens `PASS`/`FAIL` либо структурированный JSON verdict. `PASSING`, `PASSIVE`, `FAILURE` и неопределённые ответы не принимаются как PASS.
 
-`GET /v1/models` публикует:
+При исчерпании `max_iterations` бесконечного цикла нет: execution получает failure `workflow_review_limit`, сохраняет последний исправленный candidate и reviewer metadata.
+
+## Runtime hardening v1.1
+
+### Per-step budget gate
+
+Hard budget повторно проверяется перед каждым role call. Если предыдущий шаг исчерпал разрешённый бюджет, следующий upstream request не отправляется и execution завершается `workflow_budget_exceeded`.
+
+### Per-candidate Context Guard
+
+Context Guard применяется после выбора конкретного Router candidate, когда известен его реальный `ContextWindow`. Каждый fallback candidate проходит проверку отдельно; отказ одной модели по context fit не запрещает попробовать следующую совместимую модель.
+
+### Resilience/fallback
+
+Каждый role call использует существующую resilience state machine и failure classification. Orchestrator не реализует второй circuit breaker или retry engine.
+
+### Diversity
+
+Поддерживаются политики:
 
 ```text
-workflow/coding-review
+none
+provider
+family
+model
 ```
 
-Для OpenAI-compatible клиента это обычный `model`:
+Для `coding-review` diversity — preference. Если независимый provider недоступен, workflow деградирует к доступной модели вместо необоснованного отказа.
 
-```json
-{
-  "model": "workflow/coding-review",
-  "messages": [
-    {"role": "user", "content": "..."}
-  ]
-}
+## Dry-run diagnostics
+
+```text
+POST /bridge/orchestration/evaluate
 ```
 
-Внутри выполняется несколько upstream model calls, а клиент получает один финальный Chat Completions response.
+показывает без LLM generation:
 
-### Streaming
-
-Внутренние model calls v1 выполняются non-streaming. Если downstream передал `stream=true`, после завершения workflow финальный ответ преобразуется существующим Protocol Engine в корректный synthetic SSE. Внутренние ответы Developer/Critic/Reviewer наружу не стримятся.
-
-## Review-limit semantics
-
-Если Reviewer продолжает возвращать `FAIL` после достижения `max_iterations`, бесконечного цикла нет. Execution сохраняет:
-
-- лучший последний исправленный candidate как `final_result`;
-- `review.status=FAIL`;
-- `error=workflow_review_limit`.
-
-Data plane может вернуть этот последний candidate, а admin history явно показывает, что quality gate не был пройден.
+- workflow/version/policy;
+- steps и roles;
+- selector;
+- ordered Router candidates;
+- выбранную model/provider;
+- context window;
+- capability/Doctor requirements;
+- diversity policy;
+- routing error, если совместимого candidate нет.
 
 ## Persistence
 
-История хранится в существующей `data/omnibridge.db`.
+Execution history хранится в существующей `data/omnibridge.db`; отдельная БД не создаётся.
 
-Orchestration использует отдельную идемпотентную subsystem schema migration v1, не меняя стабильный глобальный Persistence 2.0 schema version на этапе feature-ветки.
+Хранятся workflow/version/status, iterations, step role/model/provider, timestamps, token usage, публичные step results, final result, reviewer status и error state. Secrets, Authorization/OAuth credentials и скрытые chain-of-thought traces не сохраняются.
 
-Таблицы:
+Persistence является diagnostics layer. Ошибка записи history не превращает уже успешно полученный model result в HTTP 5xx; она фиксируется как `PersistenceError`.
 
-- `orchestration_schema`;
-- `orchestration_workflows`;
-- `orchestration_executions`;
-- `orchestration_steps`.
-
-Сохраняются:
-
-- workflow/version/status/iteration;
-- started/finished timestamps;
-- selected model/provider каждого шага;
-- input/output/total tokens;
-- публичный result/critique/reviewer output;
-- final result и error state.
-
-Secrets, Authorization/OAuth tokens и скрытые chain-of-thought traces не сохраняются.
-
-Persistence является diagnostics/observability слоем, а не условием успешного data-plane ответа. Если workflow уже успешно получил финальный результат, ошибка записи history не заменяет его на HTTP 5xx; она остаётся в `Execution.PersistenceError`.
-
-## Admin API
+Admin API:
 
 ```text
 GET  /bridge/orchestration
@@ -149,74 +157,89 @@ GET  /bridge/orchestration/executions/{id}
 POST /bridge/orchestration/evaluate
 ```
 
-`POST /bridge/orchestration/evaluate` — dry-run: показывает workflow steps, role selectors и доступных Router candidates без LLM generation.
+## Observability
+
+Chat Completions, Responses и Messages связывают execution с общим request trace. Агрегируются:
+
+- workflow execution ID;
+- workflow/status/review status;
+- iterations;
+- upstream call count;
+- models/providers used;
+- input/output/total tokens.
+
+Скрытые reasoning traces не логируются.
+
+## Agent Compatibility foundation
+
+В ветке также присутствует provider-neutral `internal/agentcompat` и admin diagnostics:
+
+```text
+GET  /bridge/agent-compatibility
+POST /bridge/agent-compatibility/evaluate
+```
+
+Это foundation следующего крупного прохода. Он не исполняет workspace tools и не меняет scope Orchestration v1.1.
+
+Текущий GigaChat adapter уже имеет проверенные механизмы tool aliasing, schema sanitization, `tool_choice -> function_call`, `functions_state_id` round-trip, обратное восстановление OpenAI tool calls и SSE translation. Следующий проход должен усиливать и тестировать этот слой, а не дублировать его.
 
 ## Ошибки
 
-Основные orchestration error codes/states:
+Основные codes/states:
 
 - `workflow_not_found`;
 - `workflow_request_invalid`;
 - `workflow_no_candidate`;
 - `workflow_step_failed`;
+- `workflow_budget_exceeded`;
 - `workflow_tools_not_supported`;
-- `workflow_protocol_not_supported`;
-- `workflow_review_limit` в execution metadata после исчерпания review iterations.
+- `workflow_review_limit`.
 
 ## Тестирование
 
-Unit/integration tests не вызывают реальные платные API. Покрываются:
+Без реальных платных API покрыты:
 
-- workflow validation и cycle detection;
-- PASS flow;
+- workflow validation/cycle detection;
+- PASS;
 - FAIL -> Fixer -> PASS;
 - review-limit exhaustion;
+- cancellation;
 - step failure;
-- cancellation до model call;
-- fail-closed reviewer;
-- exact plain-text verdict parsing;
-- structured JSON verdict parsing;
-- recorder failure без потери успешного model result;
-- diversity preference и single-provider fallback;
-- HTTP workflow detection/delegation helpers;
-- SQLite schema idempotency;
-- execution/steps persistence round-trip;
-- full HTTP workflow path через fake OpenAI-compatible provider: `/v1/models` -> `workflow/coding-review` -> четыре upstream calls -> final response -> SQLite execution history.
+- strict/fail-closed reviewer parsing;
+- recorder failure semantics;
+- diversity + single-provider fallback;
+- SQLite schema/persistence round-trip;
+- HTTP workflow discovery;
+- full Chat Completions E2E через fake provider;
+- full Responses E2E через fake provider;
+- full Messages E2E через fake provider;
+- четыре внутренних role calls и final result contract.
 
-## CI / release validation
+## Validation gate
 
-Windows GitHub Actions подтвердил прохождение следующих обязательных code/build gates на orchestration feature-ветке:
+Feature-ветка проверяется Windows GitHub Actions:
 
-- `go test ./...`;
-- `go vet ./...`;
-- XAML + PowerShell validation;
-- Windows x64 release build.
+```text
+go test ./...
+go vet ./...
+XAML + PowerShell validation
+Windows x64 release build
+```
 
-Release ZIP был успешно создан как `dist/OmniBridge_1.0.0-rc5_Windows_x64.zip`.
+Actions artifact retention синхронизирован с `main`: хранится rolling set из трёх последних artifacts, caches очищаются отдельным maintenance workflow.
 
-Наблюдавшийся красный workflow был вызван не кодом, а исчерпанной GitHub Actions artifact storage quota на шаге `upload-artifact`. Validation workflow изменён так, чтобы test/vet/UI/build оставались обязательными gates, а временная невозможность загрузить уже собранный ZIP помечалась warning и не превращала успешную сборку в ложный code failure.
+## Статус v1.1
 
-## Известные ограничения v1
+Контракт Orchestration v1.1 считается завершённым после зелёного CI на финальном HEAD и проверки mergeability PR. Новые функции после этого относятся к следующему крупному проходу, а не расширяют v1.1.
 
-- публично полноценно поддерживается только `/v1/chat/completions` для workflow models;
-- `/v1/responses` и `/v1/messages` для `workflow/*` пока возвращают явный `workflow_protocol_not_supported`;
-- внутренние role calls не исполняют workspace tools;
-- per-candidate Context Guard trimming для role prompts ещё не интегрирован; Router уже проверяет известные context-window limits, но отдельный guard pass должен быть добавлен в следующий runtime-hardening этап;
-- dry-run показывает ordered candidates, но пока не фиксирует отдельным полем окончательный selected candidate/diversity rationale;
-- `family` diversity пока эквивалентна provider-level preference.
+## Следующий крупный проход
 
-## Рекомендуемый следующий этап: Orchestration Runtime Hardening v1.1
+**Agent Compatibility & GigaChat Parity**:
 
-До GigaCopilot parity migration рекомендуется отдельный небольшой проход v1.1 без Project Memory, workspace editing и visual workflow editor.
+1. единый provider-neutral Agent Compatibility contract и blockers/evidence;
+2. GigaChat multi-round parity hardening: aliases, schema, `tool_choice`, `functions_state_id`, history;
+3. streaming tool-call parity и fragmented SSE tests;
+4. Agent Doctor v2 с реальным двухраундовым tool round-trip contract на fake providers;
+5. VS Code/Copilot-shaped acceptance tests, `auto/agent`, fallback и documentation/CI gate.
 
-Цели v1.1:
-
-1. применить Context Guard к каждому внутреннему role request с учётом реально выбранного candidate `ContextWindow`;
-2. повторно проверять quota/budget между workflow steps и прекращать дальнейшие upstream calls при достижении hard budget;
-3. расширить dry-run полями selected candidate, provider и diversity decision;
-4. добавить общий canonical output path для `/v1/responses`, не создавая второй orchestration engine;
-5. связать workflow execution с observability trace ID и агрегировать total latency/cost/upstream-call count;
-6. добавить explicit-selector tests и no-candidate/budget/candidate-context regression tests;
-7. после зелёного CI зафиксировать v1 contract и только затем переходить к GigaChat/VS Code Agent parity.
-
-Project Memory, Multi-Agent Workspace Editing и визуальный Workflow editor остаются за пределами v1.1.
+Project Memory, Multi-Agent Workspace Editing и visual Workflow Editor остаются вне этого прохода.
