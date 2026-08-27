@@ -31,12 +31,12 @@ type Metrics struct {
 }
 
 type Event struct {
-	At           time.Time `json:"at"`
-	Provider     string    `json:"provider,omitempty"`
+	At                time.Time `json:"at"`
+	Provider          string    `json:"provider,omitempty"`
 	Model             string    `json:"model,omitempty"`
 	Failed            bool      `json:"failed"`
 	InputTokens       int64     `json:"input_tokens"`
-	CachedInputTokens int64 `json:"cached_input_tokens,omitempty"`
+	CachedInputTokens int64     `json:"cached_input_tokens,omitempty"`
 	OutputTokens      int64     `json:"output_tokens"`
 	TotalTokens       int64     `json:"total_tokens"`
 	LatencyMS         int64     `json:"latency_ms"`
@@ -82,6 +82,15 @@ func NewPersistent(path string, db *storage.DB) *Store {
 func newStore(path string, db *storage.DB) *Store {
 	s := &Store{path: path, db: db, sessionStarted: time.Now()}
 	_ = s.load()
+	// Persisted events belong to the previous process/session. On platforms with
+	// coarse wall-clock resolution (notably Windows runners), the constructor can
+	// observe the same clock tick as the last persisted event. Make the session
+	// boundary strictly newer so that an old event can never leak into "session".
+	for _, event := range s.s.Events {
+		if !event.At.IsZero() && !event.At.Before(s.sessionStarted) {
+			s.sessionStarted = event.At.Add(time.Nanosecond)
+		}
+	}
 	if s.s.StartedAt.IsZero() {
 		s.s.StartedAt = time.Now()
 	}
@@ -93,6 +102,7 @@ func newStore(path string, db *storage.DB) *Store {
 	}
 	return s
 }
+
 func (s *Store) load() error {
 	var b []byte
 	var err error
@@ -111,6 +121,7 @@ func (s *Store) load() error {
 	}
 	return json.Unmarshal(b, &s.s)
 }
+
 func (s *Store) saveLocked() error {
 	return s.persistLocked(nil)
 }
@@ -134,6 +145,7 @@ func (s *Store) persistLocked(event *storage.UsageEventRecord) error {
 	}
 	return os.Rename(tmp, s.path)
 }
+
 func add(c Counter, err bool, in, cached, out, total, lat int64) Counter {
 	c.Requests++
 	if err {
@@ -146,6 +158,7 @@ func add(c Counter, err bool, in, cached, out, total, lat int64) Counter {
 	c.LatencyMS += lat
 	return c
 }
+
 func (s *Store) Record(provider, model string, failed bool, in, out, total, lat int64) {
 	s.RecordCached(provider, model, failed, in, 0, out, total, lat)
 }
