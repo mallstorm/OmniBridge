@@ -374,7 +374,7 @@ func (s *Server) handleWorkflowProxy(w http.ResponseWriter, r *http.Request, api
 		return false
 	}
 	if apiType != "chat-completions" {
-		jsonOut(w, http.StatusNotImplemented, map[string]any{"error": map[string]any{"message": "workflow models currently support /v1/chat/completions only", "type": "workflow_protocol_not_supported", "code": "workflow_protocol_not_supported"}})
+		jsonOut(w, http.StatusNotImplemented, map[string]any{"error": map[string]any{"message": "workflow transport is not supported by this handler", "type": "workflow_protocol_not_supported", "code": "workflow_protocol_not_supported"}})
 		return true
 	}
 
@@ -384,7 +384,7 @@ func (s *Server) handleWorkflowProxy(w http.ResponseWriter, r *http.Request, api
 		return true
 	}
 	if len(canonical.Tools) > 0 {
-		jsonOut(w, http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "workspace/tool execution is intentionally outside orchestration v1", "type": "workflow_tools_not_supported", "code": "workflow_tools_not_supported"}})
+		jsonOut(w, http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "workspace/tool execution is intentionally outside orchestration v1.1", "type": "workflow_tools_not_supported", "code": "workflow_tools_not_supported"}})
 		return true
 	}
 	input := canonicalWorkflowInput(canonical)
@@ -395,6 +395,7 @@ func (s *Server) handleWorkflowProxy(w http.ResponseWriter, r *http.Request, api
 
 	executionID := fmt.Sprintf("wf-%d", time.Now().UnixNano())
 	ex, err := newOrchestrationEngine(s).Run(r.Context(), model, orchestration.Request{ID: executionID, Input: input})
+	annotateWorkflowExecution(r.Context(), ex)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || r.Context().Err() != nil {
 			return true
@@ -413,6 +414,7 @@ func (s *Server) handleWorkflowProxy(w http.ResponseWriter, r *http.Request, api
 	}
 
 	response := workflowChatCompletion(model, ex)
+	w.Header().Set("X-OmniBridge-Workflow-Execution", ex.ID)
 	if canonical.Stream {
 		sse, sseErr := protocol.SyntheticSSE(protocol.ChatCompletions, response)
 		if sseErr != nil {
@@ -429,7 +431,6 @@ func (s *Server) handleWorkflowProxy(w http.ResponseWriter, r *http.Request, api
 		return true
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("X-OmniBridge-Workflow-Execution", ex.ID)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(response)
 	return true
