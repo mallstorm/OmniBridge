@@ -34,7 +34,11 @@ func (s *Server) orchestrationTeamPlan(call orchestration.Call, candidates []pro
 	if call.Workflow.Policy.Fallback.MaxCandidates > 0 {
 		policy.MaxCandidates = call.Workflow.Policy.Fallback.MaxCandidates
 	}
-	policy.AllowDiversityFallback = call.Workflow.Policy.Fallback.AllowDiversityFallback
+	// A workflow that explicitly configures fallback controls owns this value.
+	// The built-in workflow enables graceful same-provider fallback.
+	if call.Workflow.Policy.Fallback.MaxCandidates > 0 || call.Workflow.Policy.Fallback.QuotaFloorPercent > 0 {
+		policy.AllowDiversityFallback = call.Workflow.Policy.Fallback.AllowDiversityFallback
+	}
 	if call.Workflow.Policy.Fallback.QuotaFloorPercent > 0 {
 		policy.QuotaFloorPercent = call.Workflow.Policy.Fallback.QuotaFloorPercent
 	}
@@ -111,4 +115,47 @@ func (s *Server) orchestrationTeamPlan(call orchestration.Call, candidates []pro
 func appendRoutingRationale(in orchestration.RoutingDecision, note string) orchestration.RoutingDecision {
 	in.Rationale = append(in.Rationale, note)
 	return in
+}
+
+// applyOrchestrationDiversity remains as a small compatibility helper for
+// existing unit tests and callers. Production workflow execution uses the richer
+// team planner above. Unlike the v1.1 helper, family diversity is now distinct
+// from provider diversity.
+func applyOrchestrationDiversity(candidates []providers.Model, call orchestration.Call) []providers.Model {
+	if call.Workflow.Policy.Diversity == orchestration.DiversityNone || len(candidates) < 2 {
+		return candidates
+	}
+	usedProviders := stringSet(call.AvoidProviders)
+	usedFamilies := stringSet(call.AvoidFamilies)
+	usedModels := stringSet(call.AvoidModels)
+	preferred := make([]providers.Model, 0, len(candidates))
+	fallback := make([]providers.Model, 0, len(candidates))
+	for _, m := range candidates {
+		family := teamrouting.InferFamily(m.ProviderID, m.NativeID, m.ID)
+		avoid := false
+		switch call.Workflow.Policy.Diversity {
+		case orchestration.DiversityProvider:
+			avoid = usedProviders[m.ProviderID]
+		case orchestration.DiversityFamily:
+			avoid = usedFamilies[family]
+		case orchestration.DiversityModel:
+			avoid = usedModels[m.ID]
+		}
+		if avoid {
+			fallback = append(fallback, m)
+		} else {
+			preferred = append(preferred, m)
+		}
+	}
+	return append(preferred, fallback...)
+}
+
+func stringSet(values []string) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			out[v] = true
+		}
+	}
+	return out
 }
