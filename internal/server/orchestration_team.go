@@ -117,6 +117,19 @@ func appendRoutingRationale(in orchestration.RoutingDecision, note string) orche
 	return in
 }
 
+func appendUnique(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 // applyOrchestrationDiversity remains as a small compatibility helper for
 // existing unit tests and callers. Production workflow execution uses the richer
 // team planner above. Unlike the v1.1 helper, family diversity is now distinct
