@@ -18,12 +18,15 @@
 | 14. Observability & Remote | **Выполнен в 0.4.13-alpha13** | Safe request tracing, P50/P95 telemetry, Prometheus metrics, TLS + CIDR fail-closed remote mode |
 | 15. 1.0 Release Engineering | **Выполнен в 1.0.0-rc1; RC2 integration patch** | release metadata, package verifier, readiness gate, version-aware install/update rollback, corruption fail-closed, VS Code Custom Endpoint picker/export hardening |
 | 16. Yandex + Stability hardening | **Выполнен в 1.0.0-rc5** | Native Yandex AI Studio, Api-Key + Folder ID, Responses/Chat, cached-token telemetry, overload limits, panic isolation, batched statistics |
+| 17. Multi-Model Orchestration v1.1 | **Реализован в feature-ветке; ожидает финальный CI/merge decision** | `workflow/coding-review`, Developer/Critic/Fixer/Reviewer review loop, Router role selection, Context Guard/budget per step, Chat/Responses/Messages parity, SQLite history, workflow telemetry, diagnostics |
+
+## Этап 17 — Multi-Model Orchestration v1.1
+
+Новый слой находится над существующим Router и не создаёт отдельный provider/routing stack. Первая virtual workflow model `workflow/coding-review` выполняет bounded pipeline `Developer -> Critic -> Fixer -> Reviewer`; `FAIL` запускает ограниченный Fixer/Reviewer loop. Поддержаны Chat Completions, Responses и Anthropic-compatible Messages через единый canonical execution. Перед каждым role call повторно проверяется hard budget, а после выбора конкретного candidate применяется Context Guard с его реальным context window. Execution/steps сохраняются в существующую SQLite, общая observability получает workflow ID/status/iterations/models/providers/token totals. Workspace tool execution, Project Memory и visual Workflow Editor намеренно отложены. Подробнее: `docs/ORCHESTRATION_ENGINE_RU.md`.
 
 ## Этап 16 — Yandex AI Studio + Stability hardening
 
 `1.0.0-rc5` закрывает провайдерную интеграцию Yandex без прямого редактирования VS Code BYOK-файлов: Yandex API Key остаётся в Secret Store, Folder ID преобразуется в `OpenAI-Project`, модели обнаруживаются через официальный OpenAI-compatible Models API. Введены bounded concurrency для generation/probe/discovery, panic isolation и coalesced persistence статистики. UI 3.0 и Tray не переделывались.
-
-
 
 ## Этап 15 — 1.0 Release Engineering
 
@@ -55,8 +58,8 @@
 
 В `/v1/models` добавлены `auto/smart`, `auto/coding`, `auto/fast`, `auto/cheap`, `auto/local`, `auto/reasoning`, `auto/vision`, `auto/agent`. Session affinity хранится только в памяти и использует hashed session key.
 
-`quota_optimized`/`cost_optimized` уже готовы архитектурно, но Stage 5 не считает неизвестные данные точными: до этапа 10 они используют только явные operator hints. Подробнее: `docs/STAGE5_ROUTER3_RU.md`.
+`quota_optimized`/`cost_optimized` готовы архитектурно и используют только подтверждённые или operator-provided quota/cost hints.
 
 ## UI policy
 
-Согласован Functional UI Expansion без редизайна: при появлении новых сервисов основное окно может быть увеличено до `1260×740`, при этом сохраняются нынешние sidebar, карточки, типографика, цвета, отступы и общая внутренняя разметка UI 3.0.
+Functional UI Expansion выполняется без редизайна: при появлении новых сервисов сохраняются текущие sidebar, карточки, типографика, цвета, отступы и общая внутренняя разметка UI 3.0.
