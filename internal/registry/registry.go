@@ -103,6 +103,7 @@ func mergeDoctorState(dst *providers.Model, old providers.Model) {
 		return
 	}
 	dst.ToolCalling = old.ToolCalling
+	dst.ToolRoundTrip = old.ToolRoundTrip
 	dst.ParallelTools = old.ParallelTools
 	dst.StructuredOutput = old.StructuredOutput
 	dst.Reasoning = old.Reasoning
@@ -289,6 +290,7 @@ func (r *Registry) UpdateProbe(modelID string, res providers.ProbeResult) {
 				r.snap.Models[i].ReliabilityScore = res.ReliabilityScore
 				r.snap.Models[i].DoctorCheckedAt = time.Now()
 				r.snap.Models[i].ToolCalling = res.ToolCalling
+				r.snap.Models[i].ToolRoundTrip = res.ToolRoundTrip
 				r.snap.Models[i].Streaming = res.Streaming
 				r.snap.Models[i].SystemPrompt = res.SystemPrompt
 				r.snap.Models[i].ParallelTools = res.ParallelTools

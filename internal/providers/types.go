@@ -23,6 +23,7 @@ type Model struct {
 	OwnedBy           string            `json:"owned_by,omitempty"`
 	Type              string            `json:"type,omitempty"`
 	ToolCalling       bool              `json:"tool_calling"`
+	ToolRoundTrip     bool              `json:"tool_round_trip,omitempty"`
 	ParallelTools     bool              `json:"parallel_tools,omitempty"`
 	StructuredOutput  bool              `json:"structured_output,omitempty"`
 	Reasoning         bool              `json:"reasoning,omitempty"`
