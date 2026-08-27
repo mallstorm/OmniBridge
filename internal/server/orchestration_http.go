@@ -59,6 +59,7 @@ func (s *Server) OrchestrationHandler() http.Handler {
 	specialMux.HandleFunc("POST /bridge/orchestration/evaluate", s.withAdmin(s.orchestrationEvaluate))
 	specialMux.HandleFunc("GET /bridge/agent-compatibility", s.withAdmin(s.agentCompatibilityStatus))
 	specialMux.HandleFunc("POST /bridge/agent-compatibility/evaluate", s.withAdmin(s.agentCompatibilityEvaluate))
+	specialMux.HandleFunc("POST /bridge/agent-compatibility/probe", s.withAdmin(s.agentCompatibilityProbe))
 
 	var special http.Handler = specialMux
 	special = s.recoverPanics(special)
@@ -77,7 +78,6 @@ func (s *Server) OrchestrationHandler() http.Handler {
 				r.Body = io.NopCloser(bytes.NewReader(body))
 			}
 			if err != nil {
-				// Let the established handler produce the canonical request-size/JSON error.
 				base.ServeHTTP(w, r)
 				return
 			}
@@ -111,7 +111,9 @@ func isOrchestrationControlPath(method, path string) bool {
 			strings.HasPrefix(path, "/bridge/orchestration/executions/")
 	}
 	if method == http.MethodPost {
-		return path == "/bridge/orchestration/evaluate" || path == "/bridge/agent-compatibility/evaluate"
+		return path == "/bridge/orchestration/evaluate" ||
+			path == "/bridge/agent-compatibility/evaluate" ||
+			path == "/bridge/agent-compatibility/probe"
 	}
 	return false
 }
@@ -196,10 +198,8 @@ func (s *Server) orchestrationProxyHTTP(w http.ResponseWriter, r *http.Request, 
 	switch apiType {
 	case "responses":
 		s.handleWorkflowResponses(w, r, body, meta.Model)
-		return
 	case "messages":
 		s.handleWorkflowMessages(w, r, body, meta.Model)
-		return
 	default:
 		if !s.handleWorkflowProxy(w, r, apiType, body, meta.Model) {
 			jsonOut(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"message": "request is not a workflow model", "type": "workflow_request_invalid", "code": "workflow_request_invalid"}})
