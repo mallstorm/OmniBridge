@@ -36,6 +36,7 @@ jobs:
       - name: Build Windows x64
         shell: pwsh
         run: ./scripts/build-release.ps1 -Root $PWD
+      # Rolling policy: preserve two existing artifacts, then upload this run as the third.
       - name: Prune old build artifacts
         shell: pwsh
         env:
@@ -66,17 +67,8 @@ jobs:
             Write-Host "Deleted artifact $($artifact.id): $($artifact.name)"
           }
       - name: Upload release candidate
-        id: release_artifact
-        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: OmniBridge-${{ github.sha }}-Windows-x64
           path: dist/*.zip
           retention-days: 14
-      - name: Report artifact storage limitation
-        if: steps.release_artifact.outcome == 'failure'
-        shell: pwsh
-        run: |
-          Write-Warning 'Release build succeeded, but GitHub artifact upload failed. Check Actions artifact storage quota.'
-          '### Artifact upload warning' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          'Release validation and Windows x64 build succeeded, but the release ZIP could not be uploaded to GitHub Actions artifact storage.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
