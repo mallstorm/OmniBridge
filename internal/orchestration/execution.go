@@ -38,12 +38,26 @@ type ReviewVerdict struct {
 	Summary string        `json:"summary,omitempty"`
 }
 
+type RoutingDecision struct {
+	Profile          string   `json:"profile,omitempty"`
+	Family           string   `json:"family,omitempty"`
+	CandidateRank    int      `json:"candidate_rank,omitempty"`
+	CandidateCount   int      `json:"candidate_count,omitempty"`
+	Fallback         bool     `json:"fallback,omitempty"`
+	QuotaKnown       bool     `json:"quota_known,omitempty"`
+	QuotaRemaining   float64  `json:"quota_remaining,omitempty"`
+	CostKnown        bool     `json:"cost_known,omitempty"`
+	CostPerMTokens   float64  `json:"cost_per_m_tokens,omitempty"`
+	Rationale        []string `json:"rationale,omitempty"`
+}
+
 type StepResult struct {
 	StepID, Model, Provider, Output, Error string
 	Role                                   Role
 	Status                                 StepStatus
 	StartedAt, FinishedAt                  time.Time
 	InputTokens, OutputTokens, TotalTokens int64
+	Routing                                RoutingDecision
 }
 
 type Execution struct {
@@ -65,12 +79,15 @@ type Call struct {
 	Input          string
 	Iteration      int
 	AvoidProviders []string
+	AvoidFamilies  []string
 	AvoidModels    []string
 }
 
 type CallResult struct {
-	Model, Provider, Output                 string
-	InputTokens, OutputTokens, TotalTokens int64
+	Model, Provider, Family                   string
+	InputTokens, OutputTokens, TotalTokens   int64
+	Output                                    string
+	Routing                                   RoutingDecision
 }
 
 type Executor interface{ Execute(context.Context, Call) (CallResult, error) }
@@ -121,7 +138,7 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 
 	candidate := ""
 	critique := ""
-	avoidProviders, avoidModels := []string{}, []string{}
+	avoidProviders, avoidFamilies, avoidModels := []string{}, []string{}, []string{}
 	for iteration := 1; iteration <= wf.Policy.MaxIterations; iteration++ {
 		ex.Iteration = iteration
 		for _, step := range wf.Steps {
@@ -144,6 +161,7 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 				Input:          input,
 				Iteration:      iteration,
 				AvoidProviders: append([]string(nil), avoidProviders...),
+				AvoidFamilies:  append([]string(nil), avoidFamilies...),
 				AvoidModels:    append([]string(nil), avoidModels...),
 			})
 			sr := StepResult{
@@ -158,6 +176,7 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 				InputTokens:  result.InputTokens,
 				OutputTokens: result.OutputTokens,
 				TotalTokens:  result.TotalTokens,
+				Routing:      result.Routing,
 			}
 			if err != nil {
 				sr.Status = StepFailed
@@ -174,14 +193,9 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 			}
 			ex.Steps = append(ex.Steps, sr)
 
-			if wf.Policy.Diversity != DiversityNone {
-				if result.Provider != "" {
-					avoidProviders = append(avoidProviders, result.Provider)
-				}
-				if result.Model != "" {
-					avoidModels = append(avoidModels, result.Model)
-				}
-			}
+			avoidProviders = appendUnique(avoidProviders, result.Provider)
+			avoidFamilies = appendUnique(avoidFamilies, result.Family)
+			avoidModels = appendUnique(avoidModels, result.Model)
 
 			switch step.Role {
 			case RoleDeveloper, RoleFixer:
@@ -220,6 +234,19 @@ func (e *Engine) Run(ctx context.Context, workflowID string, req Request) (ex Ex
 		ex.Error = "workflow_review_limit"
 	}
 	return ex, nil
+}
+
+func appendUnique(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func buildInput(role Role, original, candidate, critique string, review ReviewVerdict) string {
