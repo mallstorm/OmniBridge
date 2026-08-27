@@ -112,7 +112,7 @@ func (e *gigaExecutor) Proxy(ctx context.Context, p config.Provider, apiType str
 	if err != nil {
 		return nil, err
 	}
-	return e.m.proxyGigaChat(ctx, p, clean)
+	return e.m.proxyGigaChatAgentSafe(ctx, p, clean)
 }
 
 type unsupportedExecutor struct{}
