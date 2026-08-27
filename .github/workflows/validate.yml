@@ -67,6 +67,7 @@ jobs:
             Write-Host "Deleted artifact $($artifact.id): $($artifact.name)"
           }
       - name: Upload release candidate
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: OmniBridge-${{ github.sha }}-Windows-x64
