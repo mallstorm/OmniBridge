@@ -44,7 +44,7 @@
                             <StackPanel Grid.Column="1" Margin="7,1,0,0">
                                 <TextBlock Text="OmniBridge" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource HeadingBrush}"/>
                                 <TextBlock Text="Universal AI Gateway" FontSize="10.5" Foreground="{StaticResource Text2Brush}" Margin="0,1,0,0"/>
-                                <TextBlock x:Name="SidebarVersion" Text="v1.0.0-rc6" FontSize="10" Foreground="{StaticResource Text3Brush}" Margin="0,3,0,0"/>
+                                <TextBlock x:Name="SidebarVersion" Text="v1.0.0-rc7" FontSize="10" Foreground="{StaticResource Text3Brush}" Margin="0,3,0,0"/>
                             </StackPanel>
                         </Grid>
 

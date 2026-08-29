@@ -33,7 +33,7 @@ func TestRefreshPreservesVerifiedDoctorState(t *testing.T) {
 	am := accounts.NewManager(dir, sec)
 	r := New(filepath.Join(dir, "models.json"), cfg, pm, am)
 	r.RefreshAll(context.Background())
-	r.UpdateProbe("p/m", providers.ProbeResult{Deep: true, Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, AgentCompatible: true, DoctorStatus: "agent_ready", Protocols: map[string]providers.ProtocolProbe{"chat-completions": {Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, AgentCompatible: true}}})
+	r.UpdateProbe("p/m", providers.ProbeResult{Deep: true, Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, IdentityVerified: true, UpstreamModelID: "m", AgentCompatible: true, DoctorStatus: "agent_ready", Protocols: map[string]providers.ProtocolProbe{"chat-completions": {Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, IdentityVerified: true, UpstreamModelID: "m", AgentCompatible: true}}})
 	before, err := r.Find("p/m")
 	if err != nil || !before.DoctorVerified || before.DoctorScore <= 0 {
 		t.Fatalf("before=%+v err=%v", before, err)

@@ -86,6 +86,9 @@ func probeScore(pr ProtocolProbe) int {
 	if pr.AgentCompatible {
 		score += 20
 	}
+	if pr.IdentityVerified {
+		score += 6
+	}
 	return score
 }
 
@@ -100,6 +103,8 @@ func applyProtocolProbe(dst *ProbeResult, pr ProtocolProbe) {
 	dst.Vision = pr.Vision
 	dst.Reasoning = pr.Reasoning
 	dst.AgentCompatible = pr.AgentCompatible
+	dst.IdentityVerified = pr.IdentityVerified
+	dst.UpstreamModelID = pr.UpstreamModelID
 	dst.LatencyMS = pr.LatencyMS
 }
 
@@ -197,8 +202,49 @@ func (m *Manager) probeProtocol(ctx context.Context, p config.Provider, model Mo
 		// It intentionally does not attempt to grade chain-of-thought quality.
 		r.Reasoning = true
 	}
-	r.AgentCompatible = r.Basic && r.Streaming && r.SystemPrompt && r.ToolCalling && r.ToolRoundTrip
+	if st, b, e := m.runProbe(ctx, p, apiType, identityProbeBody(model, apiType), false); e == nil && st/100 == 2 {
+		text := strings.ToLower(responseText(apiType, b))
+		name := strings.ToLower(strings.TrimSpace(model.Name))
+		r.IdentityVerified = strings.Contains(text, "identity_ok") && name != "" && strings.Contains(text, name)
+		r.UpstreamModelID = responseModelID(b)
+	}
+	r.AgentCompatible = r.Basic && r.Streaming && r.SystemPrompt && r.ToolCalling && r.ToolRoundTrip && r.IdentityVerified
 	return r
+}
+
+func identityProbeBody(model Model, apiType string) []byte {
+	name := strings.TrimSpace(model.Name)
+	if name == "" {
+		name = strings.TrimSpace(model.NativeID)
+	}
+	prompt := "Reply exactly: IDENTITY_OK: " + name
+	var v map[string]any
+	switch apiType {
+	case protocol.Messages:
+		v = map[string]any{"model": model.ID, "max_tokens": 96, "stream": false, "system": "This is an identity verification. Follow the requested exact answer.", "messages": []any{map[string]any{"role": "user", "content": prompt}}}
+	case protocol.Responses:
+		v = map[string]any{"model": model.ID, "max_output_tokens": 96, "stream": false, "instructions": "This is an identity verification. Follow the requested exact answer.", "input": prompt}
+	default:
+		v = map[string]any{"model": model.ID, "max_tokens": 96, "stream": false, "messages": []any{map[string]any{"role": "system", "content": "This is an identity verification. Follow the requested exact answer."}, map[string]any{"role": "user", "content": prompt}}}
+	}
+	b, _ := json.Marshal(v)
+	return b
+}
+
+func responseModelID(b []byte) string {
+	var v map[string]any
+	if json.Unmarshal(b, &v) != nil {
+		return ""
+	}
+	if id, ok := v["model"].(string); ok {
+		return strings.TrimSpace(id)
+	}
+	if response, ok := v["response"].(map[string]any); ok {
+		if id, ok := response["model"].(string); ok {
+			return strings.TrimSpace(id)
+		}
+	}
+	return ""
 }
 
 func (m *Manager) runProbe(ctx context.Context, p config.Provider, apiType string, body []byte, streaming bool) (int, []byte, error) {

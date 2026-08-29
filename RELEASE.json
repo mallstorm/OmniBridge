@@ -1,6 +1,6 @@
 {
   "product": "OmniBridge",
-  "version": "1.0.0-rc6",
+  "version": "1.0.0-rc7",
   "channel": "rc",
   "release_train": "1.0",
   "config_schema": 5,
@@ -8,5 +8,5 @@
   "protocol_engine": "3.1",
   "router_runtime": "3.1",
   "minimum_supported_upgrade": "0.3.2-rc6",
-  "built_at_utc": "2026-08-23T01:30:00Z"
+  "built_at_utc": "2026-08-29T23:45:00Z"
 }

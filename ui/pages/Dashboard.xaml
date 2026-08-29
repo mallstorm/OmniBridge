@@ -30,7 +30,7 @@
                 <StackPanel>
                     <StackPanel Orientation="Horizontal"><Ellipse x:Name="DashServerDot" Width="7" Height="7" Fill="{StaticResource SuccessBrush}" Margin="0,3,8,0"/><TextBlock x:Name="DashServerState" Text="Локальный сервер" FontSize="10.5"/></StackPanel>
                     <TextBlock x:Name="DashServerEndpoint" Text="127.0.0.1:4142" FontSize="11" Margin="15,5,0,0" Foreground="{StaticResource Text2Brush}"/>
-                    <TextBlock x:Name="DashServerVersion" Text="Версия: 1.0.0-rc6" FontSize="10" Margin="15,7,0,0" Foreground="{StaticResource Text2Brush}"/>
+                    <TextBlock x:Name="DashServerVersion" Text="Версия: 1.0.0-rc7" FontSize="10" Margin="15,7,0,0" Foreground="{StaticResource Text2Brush}"/>
                 </StackPanel>
             </Border>
         </Grid>
@@ -102,7 +102,7 @@
                         <Grid Height="24"><TextBlock Text="Статус" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/><StackPanel HorizontalAlignment="Right" Orientation="Horizontal" VerticalAlignment="Center"><Ellipse x:Name="SystemStatusDot" Width="7" Height="7" Fill="{StaticResource SuccessBrush}" Margin="0,0,7,0"/><TextBlock x:Name="SystemStatus" Text="Запущен" FontSize="10" Foreground="{StaticResource SuccessBrush}"/></StackPanel></Grid><Border Height="1" Background="#192D41"/>
                         <Grid Height="24"><TextBlock Text="Uptime" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/><TextBlock x:Name="SystemUptime" Text="00:00:00" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10"/></Grid><Border Height="1" Background="#192D41"/>
                         <Grid Height="24"><TextBlock Text="Порт" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/><TextBlock x:Name="SystemPort" Text="4142" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10"/></Grid><Border Height="1" Background="#192D41"/>
-                        <Grid Height="24"><TextBlock Text="Версия" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/><TextBlock x:Name="SystemVersion" Text="1.0.0-rc6" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10"/></Grid><Border Height="1" Background="#192D41"/>
+                        <Grid Height="24"><TextBlock Text="Версия" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/><TextBlock x:Name="SystemVersion" Text="1.0.0-rc7" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10"/></Grid><Border Height="1" Background="#192D41"/>
                         <Grid Height="24"><TextBlock Text="Конфигурация" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/><TextBlock x:Name="SystemRegistry" Text="Ожидает" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10" Foreground="{StaticResource SuccessBrush}"/></Grid><Border Height="1" Background="#192D41"/>
                         <Grid Height="24"><TextBlock Text="Синхронизация VS Code" Style="{StaticResource SecondaryText}" VerticalAlignment="Center"/><TextBlock x:Name="SystemVSCode" Text="Готов" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10" Foreground="{StaticResource SuccessBrush}"/></Grid>
                     </StackPanel>

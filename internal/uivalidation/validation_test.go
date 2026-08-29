@@ -415,7 +415,7 @@ func TestModelIconsAndDoctorUIContract(t *testing.T) {
 	}
 }
 
-func TestVSCodeSyncUsesPickerExportV22(t *testing.T) {
+func TestVSCodeSyncUsesVerifiedPickerExport(t *testing.T) {
 	root := projectRoot(t)
 	b, err := os.ReadFile(filepath.Join(root, "scripts", "sync-vscode.ps1"))
 	if err != nil {
@@ -427,15 +427,15 @@ func TestVSCodeSyncUsesPickerExportV22(t *testing.T) {
 		`vendor='customendpoint'`,
 		`apiType='chat-completions'`,
 		`toolCalling=[bool]$m.toolCalling`,
-		`requestHeaders=[ordered]@{Authorization=('Bearer '+$dataKey);'x-bridge-key'=$dataKey}`,
-		`if([string]$vm.requestHeaders.Authorization -ne ('Bearer '+$dataKey))`,
+		`requestHeaders=[ordered]@{Authorization='Bearer ${apiKey}';'x-bridge-key'='${apiKey}'}`,
+		`if([string]$vm.requestHeaders.Authorization -ne 'Bearer ${apiKey}')`,
 		`bridge_key_fingerprint`,
 		`/v1/models`,
 		`chat.agentHost.byokModels.enabled`,
 		`VS Code нужно полностью перезапустить`,
 	} {
 		if !strings.Contains(text, required) {
-			t.Errorf("VS Code sync v2.2 contract missing %q", required)
+			t.Errorf("VS Code verified export contract missing %q", required)
 		}
 	}
 	if strings.Contains(text, `Invoke-RestMethod -Uri 'http://127.0.0.1:4142/bridge/models'`) {

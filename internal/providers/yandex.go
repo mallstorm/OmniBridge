@@ -68,7 +68,7 @@ func prepareYandexProvider(p config.Provider) (config.Provider, error) {
 	if projectID == "" {
 		return config.Provider{}, errors.New("Yandex Folder ID is required (OpenAI-Project)")
 	}
-	if strings.ContainsAny(projectID, "\r\n\t ") || len(projectID) > 128 {
+	if !ValidYandexFolderID(projectID) {
 		return config.Provider{}, errors.New("Yandex Folder ID has invalid format")
 	}
 	if p.BaseURL == "" {
@@ -84,6 +84,22 @@ func prepareYandexProvider(p config.Provider) (config.Provider, error) {
 	p.Headers["OpenAI-Project"] = projectID
 	p.AuthType = "yandex-api-key"
 	return p, nil
+}
+
+// ValidYandexFolderID accepts the documented identifier alphabet while
+// rejecting header injection and accidental folder names/URLs.
+func ValidYandexFolderID(id string) bool {
+	id = strings.TrimSpace(id)
+	if len(id) < 4 || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // yandexModelSlug strips the "gpt://<folder-id>/" prefix (when present) from a
@@ -273,15 +289,9 @@ func (e *yandexExecutor) annotateYandexModel(m *Model, projectID string) {
 		if m.MaxOutputTokens <= 0 {
 			m.MaxOutputTokens = spec.MaxOutputTokens
 		}
-		if spec.ToolCalling {
-			m.ToolCalling = true
-		}
-		if spec.Reasoning {
-			m.Reasoning = true
-		}
-		if spec.Vision {
-			m.Vision = true
-		}
+		// Curated capabilities are hints only. Model Doctor is the authority for
+		// tool, reasoning and vision support and overwrites these fields after a
+		// live probe. Discovery must never make an Agent-ready claim by itself.
 	} else if m.Name == "" || strings.Contains(m.Name, "gpt://") || yandexRawSlugName(m.Name) {
 		// Unknown families can still come back as a plain slug (no displayName).
 		// Replace the raw id with a deterministic derived name so the UI and the
@@ -310,9 +320,9 @@ func yandexCuratedModels(projectID string) []Model {
 	for _, b := range base {
 		out = append(out, Model{
 			NativeID: "gpt://" + projectID + "/" + b.Slug, Name: b.Spec.Display,
-			Streaming: true, ToolCalling: b.Spec.ToolCalling,
-			Reasoning: b.Spec.Reasoning, ContextWindow: b.Spec.ContextWindow,
-			MaxOutputTokens: b.Spec.MaxOutputTokens, Status: "discovered",
+			Streaming: false, ToolCalling: false,
+			Reasoning: false, ContextWindow: b.Spec.ContextWindow,
+			MaxOutputTokens: b.Spec.MaxOutputTokens, Status: "unverified", Source: "curated",
 		})
 	}
 	return out

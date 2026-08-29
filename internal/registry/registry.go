@@ -110,6 +110,9 @@ func mergeDoctorState(dst *providers.Model, old providers.Model) {
 	dst.Vision = old.Vision
 	dst.SystemPrompt = old.SystemPrompt
 	dst.AgentReady = old.AgentReady
+	dst.ChatVerified = old.ChatVerified
+	dst.IdentityVerified = old.IdentityVerified
+	dst.UpstreamModelID = old.UpstreamModelID
 	dst.DoctorStatus = old.DoctorStatus
 	dst.DoctorVerified = old.DoctorVerified
 	dst.DoctorScore = old.DoctorScore
@@ -280,6 +283,9 @@ func (r *Registry) UpdateProbe(modelID string, res providers.ProbeResult) {
 	r.mu.Lock()
 	for i := range r.snap.Models {
 		if r.snap.Models[i].ID == modelID {
+			r.snap.Models[i].ChatVerified = res.Basic
+			r.snap.Models[i].IdentityVerified = res.IdentityVerified
+			r.snap.Models[i].UpstreamModelID = res.UpstreamModelID
 			if res.Deep {
 				providers.ApplyDoctorScores(&res)
 				r.snap.Models[i].DoctorVerified = true
@@ -334,6 +340,30 @@ func (r *Registry) UpdateProbe(modelID string, res providers.ProbeResult) {
 			}
 			break
 		}
+	}
+	r.mu.Unlock()
+	_ = r.save()
+}
+
+// ResetProviderVerification prevents a changed key, scope, endpoint or project
+// from inheriting Doctor evidence collected for an older connection.
+func (r *Registry) ResetProviderVerification(providerID string) {
+	r.mu.Lock()
+	for i := range r.snap.Models {
+		if r.snap.Models[i].ProviderID != providerID {
+			continue
+		}
+		r.snap.Models[i].ChatVerified = false
+		r.snap.Models[i].IdentityVerified = false
+		r.snap.Models[i].UpstreamModelID = ""
+		r.snap.Models[i].DoctorVerified = false
+		r.snap.Models[i].DoctorStatus = ""
+		r.snap.Models[i].AgentReady = false
+		r.snap.Models[i].DoctorScore = 0
+		r.snap.Models[i].AgentScore = 0
+		r.snap.Models[i].CodingScore = 0
+		r.snap.Models[i].ReliabilityScore = 0
+		r.snap.Models[i].DoctorCheckedAt = time.Time{}
 	}
 	r.mu.Unlock()
 	_ = r.save()

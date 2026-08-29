@@ -23,6 +23,11 @@ func TestPrepareYandexProviderRequiresFolderID(t *testing.T) {
 	if p.AuthType != "yandex-api-key" || p.Headers["OpenAI-Project"] != "b1g-folder" {
 		t.Fatalf("unexpected normalized provider: %+v", p)
 	}
+	for _, invalid := range []string{"abc", "folder/name", "https://folder", "folder value", "folder\r\ninjected"} {
+		if ValidYandexFolderID(invalid) {
+			t.Fatalf("invalid Folder ID accepted: %q", invalid)
+		}
+	}
 }
 
 func TestYandexModelMetaAndFriendlyName(t *testing.T) {
@@ -129,7 +134,7 @@ func TestYandexListModelsFriendlyNamesAndURIs(t *testing.T) {
 		byNative[m.NativeID] = m
 	}
 	gpt := byNative["gpt://b1g-folder/yandexgpt/latest"]
-	if gpt.ID != "ya/gpt://b1g-folder/yandexgpt/latest" || gpt.Name != "YandexGPT" || !gpt.Streaming || !gpt.ToolCalling {
+	if gpt.ID != "ya/gpt://b1g-folder/yandexgpt/latest" || gpt.Name != "YandexGPT" || !gpt.Streaming || gpt.ToolCalling {
 		t.Fatalf("yandexgpt model metadata wrong: %+v", gpt)
 	}
 	if gpt.ContextWindow != 32768 || gpt.MaxOutputTokens != 8192 {
@@ -152,7 +157,7 @@ func TestYandexCuratedFallback(t *testing.T) {
 		t.Fatal("curated fallback is empty")
 	}
 	for _, m := range models {
-		if m.NativeID == "" || !m.Streaming || m.Name == "" {
+		if m.NativeID == "" || m.Streaming || m.ToolCalling || m.Name == "" || m.Status != "unverified" || m.Source != "curated" {
 			t.Fatalf("curated model incomplete: %+v", m)
 		}
 	}

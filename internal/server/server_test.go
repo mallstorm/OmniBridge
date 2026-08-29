@@ -1155,7 +1155,7 @@ func TestDoctorAwareRouterEvaluateFiltersByVerifiedCapabilities(t *testing.T) {
 	am := accounts.NewManager(dir, sec)
 	reg := registry.New(filepath.Join(dir, "models.json"), cfg, pm, am)
 	reg.RefreshAll(context.Background())
-	toolProbe := providers.ProbeResult{ModelID: "p/tool-model", Deep: true, Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, ParallelTools: true, StructuredOutput: true, AgentCompatible: true, DoctorStatus: "agent_ready", Protocols: map[string]providers.ProtocolProbe{"chat-completions": {APIType: "chat-completions", Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, ParallelTools: true, StructuredOutput: true, AgentCompatible: true}}}
+	toolProbe := providers.ProbeResult{ModelID: "p/tool-model", Deep: true, Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, ParallelTools: true, StructuredOutput: true, IdentityVerified: true, UpstreamModelID: "tool-model", AgentCompatible: true, DoctorStatus: "agent_ready", Protocols: map[string]providers.ProtocolProbe{"chat-completions": {APIType: "chat-completions", Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, ParallelTools: true, StructuredOutput: true, IdentityVerified: true, UpstreamModelID: "tool-model", AgentCompatible: true}}}
 	plainProbe := providers.ProbeResult{ModelID: "p/plain-model", Deep: true, Basic: true, Streaming: true, SystemPrompt: true, DoctorStatus: "chat_only", Protocols: map[string]providers.ProtocolProbe{"chat-completions": {APIType: "chat-completions", Basic: true, Streaming: true, SystemPrompt: true}}}
 	reg.UpdateProbe("p/tool-model", toolProbe)
 	reg.UpdateProbe("p/plain-model", plainProbe)
@@ -1305,10 +1305,12 @@ func TestVSCodeExportIncludesVirtualAgentModels(t *testing.T) {
 		StructuredOutput: true,
 		Vision:           true,
 		Reasoning:        true,
+		IdentityVerified: true,
+		UpstreamModelID:  "tool-model",
 		AgentCompatible:  true,
 		DoctorStatus:     "agent_ready",
 		Protocols: map[string]providers.ProtocolProbe{
-			"chat-completions": {APIType: "chat-completions", Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, ParallelTools: true, StructuredOutput: true, Vision: true, Reasoning: true, AgentCompatible: true},
+			"chat-completions": {APIType: "chat-completions", Basic: true, Streaming: true, SystemPrompt: true, ToolCalling: true, ToolRoundTrip: true, ParallelTools: true, StructuredOutput: true, Vision: true, Reasoning: true, IdentityVerified: true, UpstreamModelID: "tool-model", AgentCompatible: true},
 		},
 	})
 	st := stats.New(filepath.Join(dir, "stats.json"))
@@ -1328,7 +1330,7 @@ func TestVSCodeExportIncludesVirtualAgentModels(t *testing.T) {
 		t.Fatalf("vscode export status=%d body=%s", resp.StatusCode, raw)
 	}
 	text := string(raw)
-	for _, want := range []string{`"version":"2.2"`, `"id":"auto/agent"`, `"id":"auto/coding"`, `"id":"p/tool-model"`, `"toolCalling":true`, `"apiType":"chat-completions"`, `"recommended_auth_header":"Authorization"`, `"recommended_auth_scheme":"Bearer"`, `"explicit_auth_headers":true`, `"bridge_key_fingerprint":"`} {
+	for _, want := range []string{`"version":"3.0-verified"`, `"id":"auto/agent"`, `"id":"auto/coding"`, `"id":"p/tool-model"`, `"toolCalling":true`, `"apiType":"chat-completions"`, `"recommended_auth_header":"Authorization"`, `"recommended_auth_scheme":"Bearer"`, `"explicit_auth_headers":true`, `"bridge_key_fingerprint":"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("vscode export missing %s: %s", want, text)
 		}
@@ -1381,6 +1383,9 @@ func TestVSCodeExportFiltersYandexNonChatModels(t *testing.T) {
 	am := accounts.NewManager(dir, sec)
 	reg := registry.New(filepath.Join(dir, "models.json"), cfg, pm, am)
 	reg.RefreshAll(context.Background())
+	for _, id := range []string{"yandex-test/gpt://b1g-folder/yandexgpt-5.1", "yandex-test/gpt://b1g-folder/deepseek-v4-flash/latest"} {
+		reg.UpdateProbe(id, providers.ProbeResult{ModelID: id, Basic: true, DoctorStatus: "chat_only"})
+	}
 	st := stats.New(filepath.Join(dir, "stats.json"))
 	srv := New(cfg, sec, pm, am, reg, st, log.New(io.Discard, "", 0))
 	ts := httptest.NewServer(srv.Handler())

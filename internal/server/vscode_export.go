@@ -39,22 +39,29 @@ func bridgeKeyFingerprint(key string) string {
 // (Copilot) surface expects conversational models only; Yandex AI Studio also
 // lists speech/realtime/vision/embedding suites which would break agent flows.
 func (s *Server) vscodeModelExcluded(m providers.Model) bool {
+	return s.vscodeModelExcludedReason(m) != ""
+}
+
+func (s *Server) vscodeModelExcludedReason(m providers.Model) string {
 	if m.Status == "error" {
-		return true
+		return "model unavailable"
+	}
+	if !m.ChatVerified {
+		return "basic chat probe not passed"
 	}
 	if m.ProviderID == "" {
-		return false
+		return ""
 	}
 	for _, p := range s.Config.Get().Providers {
 		if p.ID == m.ProviderID && p.Enabled {
 			if p.Kind == "yandex" && !providers.YandexChatUsable(m.NativeID) {
-				return true
+				return "not a conversational Yandex model"
 			}
-			return false
+			return ""
 		}
 	}
 	// Account/Local sources keep their existing behaviour.
-	return false
+	return ""
 }
 
 func vscodeAPIPath(apiType string) string {
@@ -97,7 +104,7 @@ func (s *Server) vscodeModelFromRegistry(base string, m providers.Model) (vscode
 		Name:        strings.TrimSpace(m.ProviderName + " · " + m.Name),
 		URL:         base + vscodeAPIPath(apiType),
 		APIType:     apiType,
-		ToolCalling: m.ToolCalling || modelAgentReady(m),
+		ToolCalling: modelAgentReady(m),
 		Vision:      m.Vision,
 		// VS Code sees the OmniBridge gateway endpoint, not the native upstream.
 		// Protocol Engine provides a streaming-capable downstream transport and
@@ -124,7 +131,7 @@ func (s *Server) vscodeVirtualModel(base, id string, all []providers.Model) (vsc
 		if m.Status == "error" || s.modelBlocked(m) {
 			continue
 		}
-		toolCalling = toolCalling || m.ToolCalling || modelAgentReady(m)
+		toolCalling = toolCalling || modelAgentReady(m)
 		vision = vision || m.Vision
 		streaming = streaming || m.Streaming
 		thinking = thinking || m.Reasoning
@@ -176,6 +183,7 @@ func (s *Server) bridgeVSCodeExport(w http.ResponseWriter, r *http.Request) {
 	base := "http://" + cfg.Listen
 	all := s.Registry.Models()
 	models := make([]vscodeExportModel, 0, len(all)+len(autoVirtualModels))
+	skipped := map[string]string{}
 
 	// Put virtual routes first. In current VS Code builds the Custom Endpoint
 	// picker can display model IDs instead of names, so the stable auto/* IDs
@@ -186,7 +194,8 @@ func (s *Server) bridgeVSCodeExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, m := range all {
-		if s.vscodeModelExcluded(m) {
+		if reason := s.vscodeModelExcludedReason(m); reason != "" {
+			skipped[m.ID] = reason
 			continue
 		}
 		if x, ok := s.vscodeModelFromRegistry(base, m); ok {
@@ -201,7 +210,7 @@ func (s *Server) bridgeVSCodeExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	jsonOut(w, http.StatusOK, map[string]any{
-		"version":                  "2.2",
+		"version":                  "3.0-verified",
 		"provider_name":            "OmniBridge",
 		"bridge_key_fingerprint":   bridgeKeyFingerprint(cfg.DataAPIKey),
 		"recommended_auth_header":  "Authorization",
@@ -212,6 +221,8 @@ func (s *Server) bridgeVSCodeExport(w http.ResponseWriter, r *http.Request) {
 		"models":                   models,
 		"models_total":             len(models),
 		"agent_picker_models":      agent,
+		"models_skipped":           len(skipped),
+		"skipped_reasons":          skipped,
 		"requires_vscode_reload":   true,
 		"agent_host_setting":       "chat.agentHost.byokModels.enabled",
 		"agent_host_setting_value": true,

@@ -38,12 +38,16 @@ func TestModelDoctorV2ChatCapabilities(t *testing.T) {
 			return
 		}
 		if len(msgs) > 0 {
+			last, _ := msgs[len(msgs)-1].(map[string]any)
+			if prompt, _ := last["content"].(string); strings.Contains(prompt, "IDENTITY_OK") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"model": "model", "choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "IDENTITY_OK: Mock Model"}, "finish_reason": "stop"}}})
+				return
+			}
 			first, _ := msgs[0].(map[string]any)
 			if first["role"] == "system" {
 				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "SYS_OK"}, "finish_reason": "stop"}}})
 				return
 			}
-			last, _ := msgs[len(msgs)-1].(map[string]any)
 			if parts, ok := last["content"].([]any); ok {
 				for _, pr := range parts {
 					pm, _ := pr.(map[string]any)
@@ -72,9 +76,9 @@ func TestModelDoctorV2ChatCapabilities(t *testing.T) {
 	sec := secretstore.New(filepath.Join(dir, "secrets.json"))
 	m := NewManager(sec)
 	p := config.NormalizeProvider(config.Provider{ID: "mock", Name: "Mock", Kind: "custom", BaseURL: strings.TrimRight(up.URL, "/"), AuthType: "none", Enabled: true, Protocols: []string{"chat-completions"}, PreferredProtocol: "chat-completions"})
-	model := Model{ID: "mock/model", NativeID: "model", ProviderID: "mock", APIType: "chat-completions", PreferredProtocol: "chat-completions", Protocols: []string{"chat-completions"}}
+	model := Model{ID: "mock/model", NativeID: "model", ProviderID: "mock", Name: "Mock Model", APIType: "chat-completions", PreferredProtocol: "chat-completions", Protocols: []string{"chat-completions"}}
 	res := m.Probe(context.Background(), p, model, true)
-	if !res.Basic || !res.Streaming || !res.SystemPrompt || !res.ToolCalling || !res.ToolRoundTrip || !res.ParallelTools || !res.StructuredOutput || !res.Vision || !res.Reasoning || !res.AgentCompatible || res.DoctorStatus != "agent_ready" {
+	if !res.Basic || !res.Streaming || !res.SystemPrompt || !res.ToolCalling || !res.ToolRoundTrip || !res.ParallelTools || !res.StructuredOutput || !res.Vision || !res.Reasoning || !res.IdentityVerified || res.UpstreamModelID != "model" || !res.AgentCompatible || res.DoctorStatus != "agent_ready" {
 		t.Fatalf("doctor v2 result=%+v", res)
 	}
 }

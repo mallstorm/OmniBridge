@@ -447,7 +447,7 @@ func (s *Server) isLocalModel(m providers.Model) bool {
 }
 
 func modelAgentReady(m providers.Model) bool {
-	return m.AgentReady || strings.EqualFold(m.DoctorStatus, "agent_ready")
+	return m.DoctorVerified && m.ChatVerified && m.IdentityVerified && m.ToolCalling && m.AgentReady && strings.EqualFold(m.DoctorStatus, "agent_ready")
 }
 
 func resilienceConfig(r config.RoutingConfig) resilience.Config {
@@ -736,6 +736,105 @@ func requestForModel(body []byte, modelID string) []byte {
 	return b
 }
 
+func modelIdentityInstruction(m providers.Model) string {
+	name := strings.TrimSpace(m.Name)
+	if name == "" {
+		name = strings.TrimSpace(m.NativeID)
+	}
+	provider := strings.TrimSpace(m.ProviderName)
+	if provider == "" {
+		provider = strings.TrimSpace(m.ProviderID)
+	}
+	return fmt.Sprintf("You are %s, served by %s through OmniBridge. GitHub Copilot Chat and VS Code are only the host interface. Do not identify yourself as GitHub Copilot, VS Code, or OmniBridge. When the user asks which model you are, state exactly that you are %s and name provider %s. Otherwise follow the user's request normally.", name, provider, name, provider)
+}
+
+func injectModelIdentity(body []byte, apiType string, m providers.Model) []byte {
+	var v map[string]any
+	if json.Unmarshal(body, &v) != nil {
+		return body
+	}
+	instruction := modelIdentityInstruction(m)
+	switch apiType {
+	case protocol.Responses:
+		if current, ok := v["instructions"].(string); ok && strings.TrimSpace(current) != "" {
+			v["instructions"] = current + "\n\n" + instruction
+		} else {
+			v["instructions"] = instruction
+		}
+	case protocol.Messages:
+		switch current := v["system"].(type) {
+		case string:
+			if strings.TrimSpace(current) == "" {
+				v["system"] = instruction
+			} else {
+				v["system"] = current + "\n\n" + instruction
+			}
+		case []any:
+			v["system"] = append(current, map[string]any{"type": "text", "text": instruction})
+		default:
+			v["system"] = instruction
+		}
+	default:
+		messages, _ := v["messages"].([]any)
+		identity := map[string]any{"role": "system", "content": instruction}
+		insertAt := len(messages)
+		for i := len(messages) - 1; i >= 0; i-- {
+			msg, _ := messages[i].(map[string]any)
+			role, _ := msg["role"].(string)
+			if role == "user" {
+				insertAt = i
+				break
+			}
+		}
+		messages = append(messages, nil)
+		copy(messages[insertAt+1:], messages[insertAt:])
+		messages[insertAt] = identity
+		v["messages"] = messages
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return body
+	}
+	return b
+}
+
+func normalizeResponseModelJSON(body []byte, m providers.Model) []byte {
+	var v map[string]any
+	if json.Unmarshal(body, &v) != nil {
+		return body
+	}
+	v["model"] = m.ID
+	v["omnibridge_provider"] = m.ProviderID
+	v["omnibridge_native_model"] = m.NativeID
+	b, err := json.Marshal(v)
+	if err != nil {
+		return body
+	}
+	return b
+}
+
+func safeResponseHeaderValue(v string) string {
+	v = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(v))
+	if len(v) > 512 {
+		v = v[:512]
+	}
+	return v
+}
+
+func setSelectedModelHeaders(h http.Header, requested string, m providers.Model, fallback bool) {
+	h.Set("X-OmniBridge-Selected-Model", safeResponseHeaderValue(m.ID))
+	h.Set("X-OmniBridge-Provider", safeResponseHeaderValue(m.ProviderID))
+	h.Set("X-OmniBridge-Native-Model", safeResponseHeaderValue(m.NativeID))
+	h.Set("X-OmniBridge-Route", safeResponseHeaderValue(requested))
+	h.Set("X-OmniBridge-Fallback-Used", strconv.FormatBool(fallback))
+	h.Set("Access-Control-Expose-Headers", "X-OmniBridge-Selected-Model, X-OmniBridge-Provider, X-OmniBridge-Native-Model, X-OmniBridge-Route, X-OmniBridge-Fallback-Used")
+}
+
 func retryableStatus(status int) bool {
 	switch status {
 	case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
@@ -820,6 +919,7 @@ func chooseProviderProtocol(p config.Provider, m providers.Model, requested stri
 
 func (s *Server) upstream(ctx context.Context, m providers.Model, apiType string, body []byte) (upstreamCall, error) {
 	body = requestForModel(body, m.ID)
+	body = injectModelIdentity(body, apiType, m)
 	if m.Source == "account" {
 		a, ok := s.accountByID(m.ProviderID)
 		if !ok {
@@ -958,12 +1058,14 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 	var call upstreamCall
 	var lastClass resilience.Classification
 	attempted := false
+	attempts := 0
 	for attempt, candidate := range attemptModels {
 		if !s.acquireModelResilience(candidate) {
 			s.Logger.Printf("[resilience] skip blocked model=%s connection=%s", candidate.ID, resilienceConnectionKey(candidate))
 			continue
 		}
 		attempted = true
+		attempts = attempt + 1
 		m = candidate
 		annotateTrace(r.Context(), func(tr *observability.Trace) {
 			tr.SelectedModel = m.ID
@@ -1030,6 +1132,9 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 		return
 	}
 	defer call.Body.Close()
+	fallbackUsed := attempts > 1 || (len(candidates) > 0 && m.ID != candidates[0].ID)
+	setSelectedModelHeaders(w.Header(), meta.Model, m, fallbackUsed)
+	s.Logger.Printf("[router] route=%s selected=%s provider=%s native=%s attempts=%d fallback=%t", meta.Model, m.ID, m.ProviderID, m.NativeID, attempts, fallbackUsed)
 	if call.Status/100 != 2 {
 		s.recordUsageCost(r.Context(), m, true, 0, 0, 0, time.Since(start).Milliseconds())
 		if retryableStatus(call.Status) {
@@ -1104,6 +1209,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 			jsonErr(w, 502, "protocol translation failed: "+trErr.Error())
 			return
 		}
+		translated = normalizeResponseModelJSON(translated, m)
 		in, out, total, cached := extractUsageDetailed(translated)
 		s.recordUsageCostCached(r.Context(), m, false, in, out, total, cached, time.Since(start).Milliseconds())
 		if call.RequestedStream {
@@ -1140,7 +1246,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 				if strings.HasPrefix(trim, "data:") {
 					payload := strings.TrimSpace(strings.TrimPrefix(trim, "data:"))
 					if payload != "" && payload != "[DONE]" {
-						normalized := protocol.NormalizeAgentJSON([]byte(payload))
+						normalized := normalizeResponseModelJSON(protocol.NormalizeAgentJSON([]byte(payload)), m)
 						if json.Valid(normalized) {
 							line = []byte("data: " + string(normalized) + "\n")
 							payload = string(normalized)
@@ -1177,6 +1283,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 	}
 	raw, _ := io.ReadAll(call.Body)
 	raw = protocol.NormalizeAgentJSON(raw)
+	raw = normalizeResponseModelJSON(raw, m)
 	in, out, total, cached := extractUsageDetailed(raw)
 	s.recordUsageCostCached(r.Context(), m, false, in, out, total, cached, time.Since(start).Milliseconds())
 	_, _ = w.Write(raw)
@@ -1796,7 +1903,7 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, 400, "Yandex Folder ID is required")
 			return
 		}
-		if strings.ContainsAny(in.ProjectID, "\r\n\t ") || len(in.ProjectID) > 128 {
+		if !providers.ValidYandexFolderID(in.ProjectID) {
 			jsonErr(w, 400, "Yandex Folder ID has invalid format")
 			return
 		}
@@ -1879,6 +1986,7 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 400, "provider validation failed: "+err.Error())
 		return
 	}
+	s.Registry.ResetProviderVerification(saved.ID)
 	snap := s.refreshRegistry(context.Background())
 	jsonOut(w, 201, map[string]any{"provider": saved, "models_discovered": len(mods), "registry_models": len(snap.Models), "warning": func() string {
 		if err != nil {

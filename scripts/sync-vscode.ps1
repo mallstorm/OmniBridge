@@ -34,13 +34,9 @@ foreach($m in @($export.models)){
         toolCalling=[bool]$m.toolCalling
         vision=[bool]$m.vision
         streaming=if($null-ne$m.streaming){[bool]$m.streaming}else{$true}
-        # RC4: VS Code Custom Endpoint can retain stale BYOK SecretStorage state even after
-        # chatLanguageModels.json is rewritten. The actual request auth therefore uses the
-        # exact local key that was preflight-validated against the running Core.
-        # Authorization is a documented well-known Custom Endpoint auth override and suppresses
-        # VS Code's inferred/default Authorization header. x-bridge-key is sent as a second
-        # OmniBridge-specific path so a stale provider secret cannot break the request.
-        requestHeaders=[ordered]@{Authorization=('Bearer '+$dataKey);'x-bridge-key'=$dataKey}
+        # Keep the local key in one provider field only. VS Code substitutes ${apiKey}
+        # for every model request, avoiding one plaintext copy per exported model.
+        requestHeaders=[ordered]@{Authorization='Bearer ${apiKey}';'x-bridge-key'='${apiKey}'}
     }
     if($null-ne$m.thinking -and [bool]$m.thinking){$x.thinking=$true}
     if($null-ne$m.contextWindow -and [int64]$m.contextWindow -gt 0){$x.contextWindow=[int64]$m.contextWindow}
@@ -86,14 +82,14 @@ $out += $provider
 $json=$out|ConvertTo-Json -Depth 30
 [IO.File]::WriteAllText($file,$json,(New-Object Text.UTF8Encoding($false)))
 
-# Read-back contract: every model carries the exact preflight-validated local key in
-# explicit request headers. The actual request no longer depends on ${apiKey} substitution.
+# Read-back contract: the preflight-validated local key is stored once at provider
+# level and model headers use VS Code's ${apiKey} substitution.
 $verify=@((Get-Content -Raw -LiteralPath $file|ConvertFrom-Json)|Where-Object{$_.name -eq 'OmniBridge' -and $_.vendor -eq 'customendpoint'}|Select-Object -Last 1)
 if(-not$verify.Count){throw 'VS Code provider OmniBridge не записан.'}
 if([string]$verify[0].apiKey -ne $dataKey){throw 'VS Code provider записан с неверным локальным ключом.'}
 foreach($vm in @($verify[0].models)){
-    if([string]$vm.requestHeaders.Authorization -ne ('Bearer '+$dataKey)){throw ('Неверный Authorization у модели '+[string]$vm.id)}
-    if([string]$vm.requestHeaders.'x-bridge-key' -ne $dataKey){throw ('Неверный x-bridge-key у модели '+[string]$vm.id)}
+    if([string]$vm.requestHeaders.Authorization -ne 'Bearer ${apiKey}'){throw ('Неверный Authorization у модели '+[string]$vm.id)}
+    if([string]$vm.requestHeaders.'x-bridge-key' -ne '${apiKey}'){throw ('Неверный x-bridge-key у модели '+[string]$vm.id)}
 }
 
 # BYOK models in the agent host are opt-in in current VS Code. Safe-merge the
@@ -109,9 +105,11 @@ try{
 $agentCount=@($models|Where-Object{$_.toolCalling}).Count
 $autoCount=@($models|Where-Object{([string]$_.id).StartsWith('auto/')}).Count
 Write-Host "OmniBridge: синхронизировано моделей: $($models.Count) (Agent picker: $agentCount, auto/*: $autoCount)" -ForegroundColor Green
+Write-Host ("Пропущено непроверенных/несовместимых моделей: {0}" -f [int]$export.models_skipped) -ForegroundColor Yellow
+foreach($reason in @($export.skipped_reasons.PSObject.Properties|Select-Object -First 12)){Write-Host ("  {0}: {1}" -f$reason.Name,$reason.Value) -ForegroundColor DarkGray}
 Write-Host "Файл: $file"
 Write-Host 'VS Code нужно полностью перезапустить после синхронизации.' -ForegroundColor Yellow
-Write-Host 'RC4: запросы используют явный Authorization Bearer + x-bridge-key текущего Core; stale BYOK secret больше не участвует в фактической аутентификации.' -ForegroundColor DarkGray
+Write-Host 'LOCAL BRIDGE KEY хранится в provider.apiKey один раз; модели используют ${apiKey}. Это локальный ключ шлюза, не ключ облачного провайдера.' -ForegroundColor DarkGray
 Write-Host 'Если модели видны в Manage Models, но отсутствуют в Chat picker, включите значок глаза (Visibility) у моделей OmniBridge: VS Code хранит эту видимость отдельно от chatLanguageModels.json.' -ForegroundColor Yellow
 if([int]$export.agent_picker_models -eq 0){
     Write-Warning 'Нет моделей с Tool Calling. В Agent mode VS Code такие модели не показывает; выполните Model Doctor для подключения.'

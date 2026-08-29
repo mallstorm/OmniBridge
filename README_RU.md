@@ -1,4 +1,10 @@
-# OmniBridge 1.0.0-rc6 — Universal AI Gateway
+# OmniBridge 1.0.0-rc7 — Universal AI Gateway
+
+## 1.0.0-rc7 — Verified Models, Identity и управляемые пулы
+
+`1.0.0-rc7` отделяет обнаружение модели от доказанной работоспособности. VS Code получает только модели, прошедшие реальный Chat probe, а Agent picker — только модели с успешными streaming, system, tool round-trip и identity-проверками. После выбора физической модели OmniBridge добавляет protocol-aware identity envelope, возвращает `X-OmniBridge-Selected-Model` и связанные диагностические заголовки и нормализует поле `model` в JSON/SSE. Поэтому Yandex DeepSeek, GigaChat и другие модели называют себя фактической моделью, а GitHub Copilot Chat — только интерфейсом.
+
+Yandex curated-кандидаты больше не выдаются за обнаруженные и не экспортируются без проверки. GigaChat OAuth повторяет `401` ровно один раз. Desktop UI получил сортировку моделей, проверку всех/только проваленных моделей и редактор ручных пулов с несколькими кандидатами, fallback, стратегиями, весами и session affinity. Подробнее: `docs/RC7_VERIFIED_MODELS_IDENTITY_RU.md`.
 
 ## 1.0.0-rc6 — Yandex model identity, VS Code и release hardening
 

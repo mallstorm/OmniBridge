@@ -30,6 +30,9 @@ type Model struct {
 	Vision            bool              `json:"vision"`
 	SystemPrompt      bool              `json:"system_prompt,omitempty"`
 	AgentReady        bool              `json:"agent_ready,omitempty"`
+	ChatVerified      bool              `json:"chat_verified,omitempty"`
+	IdentityVerified  bool              `json:"identity_verified,omitempty"`
+	UpstreamModelID   string            `json:"upstream_model_id,omitempty"`
 	DoctorStatus      string            `json:"doctor_status,omitempty"`
 	DoctorVerified    bool              `json:"doctor_verified"`
 	DoctorScore       float64           `json:"doctor_score"`
@@ -60,6 +63,8 @@ type ProtocolProbe struct {
 	Vision           bool   `json:"vision,omitempty"`
 	Reasoning        bool   `json:"reasoning,omitempty"`
 	AgentCompatible  bool   `json:"agent_compatible,omitempty"`
+	IdentityVerified bool   `json:"identity_verified,omitempty"`
+	UpstreamModelID  string `json:"upstream_model_id,omitempty"`
 	LatencyMS        int64  `json:"latency_ms"`
 	Error            string `json:"error,omitempty"`
 }
@@ -77,6 +82,8 @@ type ProbeResult struct {
 	Vision           bool                     `json:"vision,omitempty"`
 	Reasoning        bool                     `json:"reasoning,omitempty"`
 	AgentCompatible  bool                     `json:"agent_compatible,omitempty"`
+	IdentityVerified bool                     `json:"identity_verified,omitempty"`
+	UpstreamModelID  string                   `json:"upstream_model_id,omitempty"`
 	DoctorStatus     string                   `json:"doctor_status,omitempty"`
 	DoctorScore      float64                  `json:"doctor_score"`
 	AgentScore       float64                  `json:"agent_score"`

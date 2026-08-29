@@ -54,6 +54,9 @@ func (m *Manager) gigaAccessToken(ctx context.Context, p config.Provider) (strin
 		return "", err
 	}
 	oauth := "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+	if custom := strings.TrimSpace(p.Quirks["gigachat_oauth_url"]); custom != "" {
+		oauth = custom
+	}
 	scope := p.Scope
 	if scope == "" {
 		scope = "GIGACHAT_API_PERS"
@@ -109,6 +112,16 @@ func uuid4() string {
 }
 
 func (m *Manager) listGigaModels(ctx context.Context, p config.Provider) ([]Model, error) {
+	return m.listGigaModelsAttempt(ctx, p, true)
+}
+
+func (m *Manager) clearGigaToken(providerID string) {
+	m.gigaTokens.mu.Lock()
+	delete(m.gigaTokens.byProvider, providerID)
+	m.gigaTokens.mu.Unlock()
+}
+
+func (m *Manager) listGigaModelsAttempt(ctx context.Context, p config.Provider, retry401 bool) ([]Model, error) {
 	token, err := m.gigaAccessToken(ctx, p)
 	if err != nil {
 		return nil, err
@@ -133,10 +146,11 @@ func (m *Manager) listGigaModels(ctx context.Context, p config.Provider) ([]Mode
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 401 {
-		m.gigaTokens.mu.Lock()
-		delete(m.gigaTokens.byProvider, p.ID)
-		m.gigaTokens.mu.Unlock()
-		return m.listGigaModels(ctx, p)
+		m.clearGigaToken(p.ID)
+		if retry401 {
+			return m.listGigaModelsAttempt(ctx, p, false)
+		}
+		return nil, fmt.Errorf("GigaChat models authorization failed after token refresh: HTTP 401")
 	}
 	if resp.StatusCode/100 != 2 {
 		return nil, decodeError(resp)
@@ -151,7 +165,7 @@ func (m *Manager) listGigaModels(ctx context.Context, p config.Provider) ([]Mode
 			continue
 		}
 		out = append(out, Model{ID: p.ID + "/" + x.ID, NativeID: x.ID, ProviderID: p.ID, ProviderName: p.Name, Name: x.ID,
-			APIType: "chat-completions", PreferredProtocol: "chat-completions", Protocols: append([]string(nil), p.Protocols...), OwnedBy: x.OwnedBy, Type: x.Type, Streaming: true, ToolCalling: true, Status: "discovered"})
+			APIType: "chat-completions", PreferredProtocol: "chat-completions", Protocols: append([]string(nil), p.Protocols...), OwnedBy: x.OwnedBy, Type: x.Type, Streaming: true, ToolCalling: false, Status: "discovered"})
 	}
 	return out, nil
 }
@@ -449,6 +463,10 @@ func translateGigaJSON(data []byte, reverse map[string]string) ([]byte, error) {
 }
 
 func (m *Manager) proxyGigaChat(ctx context.Context, p config.Provider, body []byte) (*UpstreamResponse, error) {
+	return m.proxyGigaChatAttempt(ctx, p, body, true)
+}
+
+func (m *Manager) proxyGigaChatAttempt(ctx context.Context, p config.Provider, body []byte, retry401 bool) (*UpstreamResponse, error) {
 	token, err := m.gigaAccessToken(ctx, p)
 	if err != nil {
 		return nil, err
@@ -475,10 +493,11 @@ func (m *Manager) proxyGigaChat(ctx context.Context, p config.Provider, body []b
 	}
 	if resp.StatusCode == 401 {
 		resp.Body.Close()
-		m.gigaTokens.mu.Lock()
-		delete(m.gigaTokens.byProvider, p.ID)
-		m.gigaTokens.mu.Unlock()
-		return m.proxyGigaChat(ctx, p, body)
+		m.clearGigaToken(p.ID)
+		if retry401 {
+			return m.proxyGigaChatAttempt(ctx, p, body, false)
+		}
+		return nil, fmt.Errorf("GigaChat authorization failed after token refresh: HTTP 401")
 	}
 	stream := false
 	var meta map[string]any

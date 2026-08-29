@@ -1,8 +1,15 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"omnibridge/internal/config"
+	"omnibridge/internal/secretstore"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -89,5 +96,66 @@ func TestMergeDeveloperAndSystem(t *testing.T) {
 	first := msgs[0].(map[string]any)
 	if first["role"] != "system" || first["content"] != "A\n\nB" {
 		t.Fatalf("first=%v", first)
+	}
+}
+
+func TestGigaModelsRetriesUnauthorizedOnlyOnce(t *testing.T) {
+	var oauthCalls, modelCalls atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth":
+			oauthCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_at": 4102444800000})
+		case "/v1/models":
+			modelCalls.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer up.Close()
+	dir := t.TempDir()
+	secrets := secretstore.New(filepath.Join(dir, "secrets.json"))
+	if err := secrets.Put("provider:giga", "basic-key"); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(secrets)
+	p := config.Provider{ID: "giga", Name: "GigaChat", Kind: "gigachat", BaseURL: up.URL + "/v1", ModelsURL: up.URL + "/v1/models", CredentialRef: "provider:giga", Enabled: true, Quirks: map[string]string{"gigachat_oauth_url": up.URL + "/oauth"}}
+	if _, err := m.listGigaModels(context.Background(), p); err == nil || !strings.Contains(err.Error(), "after token refresh") {
+		t.Fatalf("expected bounded 401 error, got %v", err)
+	}
+	if oauthCalls.Load() != 2 || modelCalls.Load() != 2 {
+		t.Fatalf("unbounded or missing retry: oauth=%d models=%d", oauthCalls.Load(), modelCalls.Load())
+	}
+}
+
+func TestGigaProxyRetriesUnauthorizedOnlyOnce(t *testing.T) {
+	var oauthCalls, chatCalls atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth":
+			oauthCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "token", "expires_at": 4102444800000})
+		case "/v1/chat/completions":
+			chatCalls.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer up.Close()
+	dir := t.TempDir()
+	secrets := secretstore.New(filepath.Join(dir, "secrets.json"))
+	if err := secrets.Put("provider:giga", "basic-key"); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(secrets)
+	p := config.Provider{ID: "giga", Name: "GigaChat", Kind: "gigachat", BaseURL: up.URL + "/v1", CredentialRef: "provider:giga", Enabled: true, Quirks: map[string]string{"gigachat_oauth_url": up.URL + "/oauth"}}
+	body := []byte(`{"model":"giga/GigaChat","messages":[{"role":"user","content":"hi"}]}`)
+	if _, err := m.proxyGigaChat(context.Background(), p, body); err == nil || !strings.Contains(err.Error(), "after token refresh") {
+		t.Fatalf("expected bounded 401 error, got %v", err)
+	}
+	if oauthCalls.Load() != 2 || chatCalls.Load() != 2 {
+		t.Fatalf("unbounded or missing retry: oauth=%d chat=%d", oauthCalls.Load(), chatCalls.Load())
 	}
 }

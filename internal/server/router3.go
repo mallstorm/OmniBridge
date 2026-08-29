@@ -239,6 +239,10 @@ func (s *Server) filterRouterModelsForRequest(models []providers.Model, mode, pr
 	out := make([]providers.Model, 0, len(base))
 	rejected := map[string][]string{}
 	for _, m := range base {
+		if requireDoctorProof && !m.ChatVerified {
+			rejected[m.ID] = []string{"chat_verification_required"}
+			continue
+		}
 		check := obr.CheckCompatibility(s.toRouterCandidate(m, config.RoutingPolicy{}), req, requireDoctorProof)
 		if !check.Compatible {
 			rejected[m.ID] = append([]string(nil), check.Reasons...)

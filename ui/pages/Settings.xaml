@@ -30,22 +30,24 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2">
-                <Border Style="{StaticResource Card}" Height="286" Padding="15,12">
+                <Border Style="{StaticResource Card}" Height="430" Padding="15,12">
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="28"/><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="42"/></Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="28"/><RowDefinition Height="58"/><RowDefinition Height="132"/><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="42"/></Grid.RowDefinitions>
                         <Grid><TextBlock Text="OmniBridge Router" Style="{StaticResource SectionTitle}"/><Border HorizontalAlignment="Right" Background="#12385D" CornerRadius="5" Padding="7,3"><TextBlock Text="ROUTER 3.1 · AUTO" FontSize="8.5" Foreground="#8FD2FF"/></Border></Grid>
-                        <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="9"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="ALIAS" Style="{StaticResource Kicker}" Margin="0,3,0,4"/><TextBox x:Name="RouteAlias" ToolTip="Например: coding-fast"/></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="MODEL ID" Style="{StaticResource Kicker}" Margin="0,3,0,4"/><ComboBox x:Name="RouteModel" DisplayMemberPath="display"/></StackPanel></Grid>
-                        <Grid Grid.Row="2" Margin="0,8,0,0">
+                        <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="9"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="ALIAS" Style="{StaticResource Kicker}" Margin="0,3,0,4"/><TextBox x:Name="RouteAlias" ToolTip="Например: coding-fast"/></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="СТРАТЕГИЯ" Style="{StaticResource Kicker}" Margin="0,3,0,4"/><ComboBox x:Name="RouteStrategy" DisplayMemberPath="display"/></StackPanel></Grid>
+                        <StackPanel Grid.Row="2" Margin="0,7,0,0"><TextBlock Text="ПРОВЕРЕННЫЕ МОДЕЛИ · CTRL ДЛЯ МУЛЬТИВЫБОРА" Style="{StaticResource Kicker}" Margin="0,0,0,4"/><ListBox x:Name="RouteModel" DisplayMemberPath="display" SelectionMode="Extended" Height="105"/></StackPanel>
+                        <Grid Grid.Row="3"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="9"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="ВЕСА ПО ПОРЯДКУ" Style="{StaticResource Kicker}" Margin="0,3,0,4"/><TextBox x:Name="RouteWeights" Text="1,1" ToolTip="Например: 3,1,1"/></StackPanel><CheckBox x:Name="RouteStickiness" Grid.Column="2" Content="Закреплять модель за чатом" IsChecked="True" VerticalAlignment="Center" Margin="0,17,0,0"/></Grid>
+                        <Grid Grid.Row="4" Margin="0,8,0,0">
                             <Grid.RowDefinitions><RowDefinition Height="28"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                             <Grid><TextBlock Text="Псевдонимы моделей" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource HeadingBrush}"/><Button x:Name="BtnRouteDelete" Style="{StaticResource DangerButton}" Content="Удалить" Height="25" HorizontalAlignment="Right"/></Grid>
                             <Grid Grid.Row="1"><ListBox x:Name="RoutesList"><ListBox.ItemTemplate><DataTemplate><Border Background="#0D1B2A" BorderBrush="#1A3148" BorderThickness="1" CornerRadius="7" Padding="9,6"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1*"/><ColumnDefinition Width="22"/><ColumnDefinition Width="1.6*"/></Grid.ColumnDefinitions><TextBlock Text="{Binding alias}" FontSize="10.5" FontWeight="SemiBold"/><Path Grid.Column="1" Data="{StaticResource IconArrow}" Stroke="{StaticResource BlueBrightBrush}" StrokeThickness="1.4" Width="12" Height="12" Stretch="Uniform"/><TextBlock Grid.Column="2" Text="{Binding target}" FontSize="10" Foreground="{StaticResource Text2Brush}" TextTrimming="CharacterEllipsis"/></Grid></Border></DataTemplate></ListBox.ItemTemplate></ListBox><StackPanel x:Name="RoutesEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"><TextBlock Text="Маршрутов пока нет" Style="{StaticResource EmptyStateTitle}"/><TextBlock Text="Выберите модель и создайте короткий alias." Style="{StaticResource EmptyStateText}" Margin="0,3,0,0"/></StackPanel></Grid>
                         </Grid>
-                        <Button x:Name="BtnRouteSave" Grid.Row="3" Style="{StaticResource PrimaryButton}" Content="Добавить или обновить alias" VerticalAlignment="Bottom"/>
+                        <Button x:Name="BtnRouteSave" Grid.Row="5" Style="{StaticResource PrimaryButton}" Content="Сохранить пул и порядок fallback" VerticalAlignment="Bottom"/>
                     </Grid>
                 </Border>
 
-                <Border Style="{StaticResource Card}" Height="108" Padding="15,11" Margin="0,10,0,0">
-                    <Grid><StackPanel Margin="0,0,125,0"><TextBlock Text="Версия и обслуживание" Style="{StaticResource SectionTitle}"/><TextBlock x:Name="SettingsVersion" Text="1.0.0-rc6" Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/><TextBlock Text="Portable-данные не переносятся автоматически." Style="{StaticResource SecondaryText}" Margin="0,4,0,0"/></StackPanel><Button x:Name="BtnOpenRoot" Style="{StaticResource QuietButton}" Content="Открыть OmniBridge" Width="112" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Grid>
+                <Border Style="{StaticResource Card}" Height="82" Padding="15,9" Margin="0,10,0,0">
+                    <Grid><StackPanel Margin="0,0,125,0"><TextBlock Text="Версия и обслуживание" Style="{StaticResource SectionTitle}"/><TextBlock x:Name="SettingsVersion" Text="1.0.0-rc7" Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/><TextBlock Text="Portable-данные не переносятся автоматически." Style="{StaticResource SecondaryText}" Margin="0,4,0,0"/></StackPanel><Button x:Name="BtnOpenRoot" Style="{StaticResource QuietButton}" Content="Открыть OmniBridge" Width="112" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Grid>
                 </Border>
             </StackPanel>
         </Grid>

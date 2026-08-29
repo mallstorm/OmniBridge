@@ -142,7 +142,7 @@ function Model-Icon($Model){
 function Model-Class($m){
     if($m.status -eq 'error'){return @{label='Error';bg='#3A1820';fg='#FF8290'}}
     if($m.status -eq 'rate_limited'){return @{label='Rate Limited';bg='#3A2D12';fg='#FFD45D'}}
-    if($m.doctor_verified -and ($m.agent_ready -or $m.doctor_status -eq 'agent_ready')){return @{label='Agent Ready';bg='#123922';fg='#64EA88'}}
+    if($m.doctor_verified-and$m.chat_verified-and$m.identity_verified-and$m.agent_ready-and$m.doctor_status-eq'agent_ready'){return @{label='Agent Ready';bg='#123922';fg='#64EA88'}}
     if(-not$m.doctor_verified){return @{label='Не проверено';bg='#17304A';fg='#7DCCFF'}}
     if($m.streaming){return @{label='Chat Ready';bg='#11334D';fg='#65C5FF'}}
     if($m.status -eq 'ready'){return @{label='Chat Only';bg='#3A3012';fg='#F0D259'}}
@@ -303,47 +303,59 @@ $LoginTimer.Add_Tick({if(-not$script:LoginAttempt){$LoginTimer.Stop();return};tr
 function Selected-Account {if($AccountsList.SelectedItem){$AccountsList.SelectedItem.raw}else{$null}}
 
 function Build-ModelRows {
-    $rows=@();foreach($m in (Get-ModelSnapshot)){if(-not$m-or-not$m.id){continue};$c=Model-Class $m;$source=if($m.source-eq'account'){'Account'}elseif($m.source-eq'local'){'Local'}else{'API Ключ'};$rows+=[pscustomobject]@{icon=(Model-Icon $m);name=$(if($m.name){$m.name}else{$m.native_id});provider=$(if($m.provider_name){$m.provider_name}else{$m.provider_id});provider_id=$m.provider_id;source=$source;badge=$c.label;badge_bg=(Brush $c.bg);badge_fg=(Brush $c.fg);protocol=$(if($m.preferred_protocol){$m.preferred_protocol}elseif($m.api_type){$m.api_type}else{'—'});latency=$(if($m.latency_ms){$m.latency_ms.ToString()+' ms'}else{'—'});doctor_verified=[bool]$m.doctor_verified;raw=$m}}
+    $rows=@();foreach($m in (Get-ModelSnapshot)){if(-not$m-or-not$m.id){continue};$c=Model-Class $m;$source=if($m.source-eq'account'){'Account'}elseif($m.source-eq'local'){'Local'}elseif($m.source-eq'curated'){'Curated'}else{'API Ключ'};$rows+=[pscustomobject]@{icon=(Model-Icon $m);name=$(if($m.name){$m.name}else{$m.native_id});provider=$(if($m.provider_name){$m.provider_name}else{$m.provider_id});provider_id=$m.provider_id;source=$source;badge=$c.label;badge_bg=(Brush $c.bg);badge_fg=(Brush $c.fg);protocol=$(if($m.preferred_protocol){$m.preferred_protocol}elseif($m.api_type){$m.api_type}else{'—'});latency=$(if($m.latency_ms){$m.latency_ms.ToString()+' ms'}else{'—'});doctor_verified=[bool]$m.doctor_verified;raw=$m}}
     $script:ModelRows=$rows
 }
 function Apply-ModelFilter {
     $q=$ModelsSearch.Text.Trim().ToLower();$provider=if($ModelsProviderFilter.SelectedItem){[string]$ModelsProviderFilter.SelectedItem}else{'Все провайдеры'};$source=if($ModelsSourceFilter.SelectedItem){[string]$ModelsSourceFilter.SelectedItem.Content}else{'Все источники'}
     $out=@($script:ModelRows|Where-Object{($q-eq'' -or $_.name.ToLower().Contains($q) -or $_.provider.ToLower().Contains($q))-and($provider-eq'Все провайдеры'-or$_.provider-eq$provider)-and($source-eq'Все источники'-or$_.source-eq$source)})
+    $sort=if($ModelsSort -and $ModelsSort.SelectedItem){[string]$ModelsSort.SelectedItem.id}else{'provider'}
+    switch($sort){
+        'name'{$out=@($out|Sort-Object name,provider)}
+        'doctor'{$out=@($out|Sort-Object @{Expression={[double]$_.raw.doctor_score};Descending=$true},name)}
+        'latency'{$out=@($out|Sort-Object @{Expression={if([int64]$_.raw.latency_ms-gt0){[int64]$_.raw.latency_ms}else{[int64]::MaxValue}}},name)}
+        'context'{$out=@($out|Sort-Object @{Expression={[int64]$_.raw.context_window};Descending=$true},name)}
+        'agent'{$out=@($out|Sort-Object @{Expression={[bool]$_.raw.agent_ready};Descending=$true},@{Expression={[bool]$_.raw.identity_verified};Descending=$true},name)}
+        default{$out=@($out|Sort-Object provider,name)}
+    }
     Set-ControlItems $ModelsList $out $ModelsEmpty;$ModelsCount.Text=('Моделей: '+$out.Count);$BtnProbeSelectedModel.IsEnabled=$false
 }
 function Refresh-Models {
     try{
         $selectedID=$null;if($ModelsList.SelectedItem -and $ModelsList.SelectedItem.raw){$selectedID=[string]$ModelsList.SelectedItem.raw.id}
-        Build-ModelRows;$providers=@('Все провайдеры')+@($script:ModelRows.provider|Sort-Object -Unique);Set-ControlItems $ModelsProviderFilter $providers $null $true;Apply-ModelFilter
+        Build-ModelRows;$providers=@('Все провайдеры')+@($script:ModelRows.provider|Sort-Object -Unique);Set-ControlItems $ModelsProviderFilter $providers $null $true
+        if($ModelsSort.Items.Count-eq0){Set-ControlItems $ModelsSort @([pscustomobject]@{id='provider';display='Провайдер'},[pscustomobject]@{id='name';display='Имя'},[pscustomobject]@{id='doctor';display='Doctor score'},[pscustomobject]@{id='agent';display='Agent Ready'},[pscustomobject]@{id='latency';display='Задержка'},[pscustomobject]@{id='context';display='Контекст'}) $null $true}
+        Apply-ModelFilter
         if($selectedID){for($i=0;$i-lt$ModelsList.Items.Count;$i++){if([string]$ModelsList.Items[$i].raw.id-eq$selectedID){$ModelsList.SelectedIndex=$i;break}}}
         if($ModelsList.SelectedItem){Update-ModelDetail}
-        $routeModels=@($script:ModelRows|ForEach-Object{[pscustomobject]@{display=($_.provider+' · '+$_.name);id=$_.raw.id}});Set-ControlItems $RouteModel $routeModels $null $true
+        $routeModels=@($script:ModelRows|Where-Object{$_.raw.chat_verified}|ForEach-Object{[pscustomobject]@{display=($_.provider+' · '+$_.name);id=$_.raw.id}});Set-ControlItems $RouteModel $routeModels $null $true
+        if($RouteStrategy.Items.Count-eq0){Set-ControlItems $RouteStrategy @([pscustomobject]@{id='priority';display='Приоритет + fallback'},[pscustomobject]@{id='weighted';display='Weighted'},[pscustomobject]@{id='round_robin';display='Round-robin'},[pscustomobject]@{id='fastest';display='Самая быстрая'},[pscustomobject]@{id='cost_optimized';display='Самая дешёвая'},[pscustomobject]@{id='agent_ready_only';display='Только Agent Ready'},[pscustomobject]@{id='local_only';display='Только локальные'}) $null $true}
     }catch{Show-Toast $_.Exception.Message 'error'}
 }
 function Update-ModelDetail {
     $r=$ModelsList.SelectedItem;if($null-eq$r){$BtnProbeSelectedModel.IsEnabled=$false;return};$BtnProbeSelectedModel.IsEnabled=$true;$m=$r.raw;$ModelDetailTitle.Text=$r.name;$ModelDetailProvider.Text=$r.provider;$ModelDetailProtocol.Text=if($m.preferred_protocol){$m.preferred_protocol}else{$m.api_type};$ModelDetailChecked.Text=Format-Age $(if($m.doctor_checked_at){$m.doctor_checked_at}else{$m.last_checked});$ModelDetailError.Text=$m.error
     $ModelDoctorScore.Text=Format-DoctorScore $m 'doctor_score';$ModelAgentScore.Text=Format-DoctorScore $m 'agent_score';$ModelCodingScore.Text=Format-DoctorScore $m 'coding_score';$ModelReliabilityScore.Text=Format-DoctorScore $m 'reliability_score'
     $ModelDetailContext.Text=Format-TokenCapacity $m.context_window;$ModelDetailOutput.Text=Format-TokenCapacity $m.max_output_tokens
-    $CapChat.Opacity=if($m.status-ne'error'){1}else{0.35};$CapStream.Opacity=if($m.streaming){1}else{0.35};$CapTools.Opacity=if($m.tool_calling){1}else{0.35};$CapParallel.Opacity=if($m.parallel_tools){1}else{0.35};$CapStructured.Opacity=if($m.structured_output){1}else{0.35};$CapReasoning.Opacity=if($m.reasoning){1}else{0.35};$CapVision.Opacity=if($m.vision){1}else{0.35}
+    $CapChat.Opacity=if($m.chat_verified){1}else{0.35};$CapIdentity.Opacity=if($m.identity_verified){1}else{0.35};$CapStream.Opacity=if($m.streaming-and$m.chat_verified){1}else{0.35};$CapTools.Opacity=if($m.agent_ready-and$m.identity_verified){1}else{0.35};$CapParallel.Opacity=if($m.parallel_tools){1}else{0.35};$CapStructured.Opacity=if($m.structured_output){1}else{0.35};$CapReasoning.Opacity=if($m.reasoning){1}else{0.35};$CapVision.Opacity=if($m.vision){1}else{0.35}
 }
 function Probe-SelectedModel {
     $r=$ModelsList.SelectedItem;if($null-eq$r){return};try{Show-Toast ('Проверяю '+$r.name+'…');$res=Invoke-Admin POST '/bridge/probe' @{model_id=$r.raw.id;deep=$true} 220;Refresh-Models;Refresh-DoctorReport;Refresh-Dashboard;Show-Toast ("Проверка завершена: Doctor={0:N0} · Agent={1:N0} · Coding={2:N0} · Reliability={3:N0}" -f [double]$res.doctor_score,[double]$res.agent_score,[double]$res.coding_score,[double]$res.reliability_score) $(if($res.basic){'ok'}else{'warn'})}catch{Show-Toast $_.Exception.Message 'error'}
 }
 
 function Refresh-DoctorProviders {
-    try{$rows=@();foreach($p in @(ConvertTo-FlatArray (Invoke-Admin GET '/bridge/providers'))){if($p-and$p.id-and$p.name){$rows+=[pscustomobject]@{display=[string]$p.name;id=[string]$p.id}}};foreach($a in @(ConvertTo-FlatArray (Invoke-Admin GET '/bridge/accounts'))){if($a-and$a.id-and$a.name-and$a.status-eq'connected'){$rows+=[pscustomobject]@{display=[string]$a.name;id=[string]$a.id}}};Set-ControlItems $DoctorProvider $rows $null $true;$BtnDoctorStart.IsEnabled=$rows.Count-gt0}catch{$BtnDoctorStart.IsEnabled=$false}
+    try{$rows=@([pscustomobject]@{display='Все подключения';id='*'});foreach($p in @(ConvertTo-FlatArray (Invoke-Admin GET '/bridge/providers'))){if($p-and$p.id-and$p.name){$rows+=[pscustomobject]@{display=[string]$p.name;id=[string]$p.id}}};foreach($a in @(ConvertTo-FlatArray (Invoke-Admin GET '/bridge/accounts'))){if($a-and$a.id-and$a.name-and$a.status-eq'connected'){$rows+=[pscustomobject]@{display=[string]$a.name;id=[string]$a.id}}};Set-ControlItems $DoctorProvider $rows $null $true;$BtnDoctorStart.IsEnabled=$rows.Count-gt1}catch{$BtnDoctorStart.IsEnabled=$false}
 }
 function Refresh-DoctorReport {
-    Build-ModelRows;$rows=@();foreach($x in $script:ModelRows){$m=$x.raw;$c=Model-Class $m;$rows+=[pscustomobject]@{name=$x.name;provider=$x.provider;chat=if($m.status-ne'error'){'Chat ✓'}else{'Chat ×'};chat_color=Brush $(if($m.status-ne'error'){'#64EA88'}else{'#FF8290'});stream=if($m.streaming){'Stream ✓'}else{'Stream —'};stream_color=Brush $(if($m.streaming){'#64EA88'}else{'#E7C342'});tools=if($m.tool_calling){'Tools ✓'}else{'Tools —'};tools_color=Brush $(if($m.tool_calling){'#64EA88'}else{'#E7C342'});icon=(Model-Icon $m);doctor_score=Format-DoctorScore $m 'doctor_score';agent_score=Format-DoctorScore $m 'agent_score';coding_score=Format-DoctorScore $m 'coding_score';reliability_score=Format-DoctorScore $m 'reliability_score';class=$c.label;class_color=Brush $c.fg}};Set-ControlItems $DoctorReport $rows $DoctorEmpty
+    Build-ModelRows;$rows=@();foreach($x in $script:ModelRows){$m=$x.raw;$c=Model-Class $m;$rows+=[pscustomobject]@{name=$x.name;provider=$x.provider;chat=if($m.chat_verified){'Chat ✓'}else{'Chat ×'};chat_color=Brush $(if($m.chat_verified){'#64EA88'}else{'#FF8290'});stream=if($m.streaming-and$m.chat_verified){'Stream ✓'}else{'Stream —'};stream_color=Brush $(if($m.streaming-and$m.chat_verified){'#64EA88'}else{'#E7C342'});tools=if($m.agent_ready-and$m.identity_verified){'Agent ✓'}else{'Agent —'};tools_color=Brush $(if($m.agent_ready-and$m.identity_verified){'#64EA88'}else{'#E7C342'});icon=(Model-Icon $m);doctor_score=Format-DoctorScore $m 'doctor_score';agent_score=Format-DoctorScore $m 'agent_score';coding_score=Format-DoctorScore $m 'coding_score';reliability_score=Format-DoctorScore $m 'reliability_score';class=$c.label;class_color=Brush $c.fg}};Set-ControlItems $DoctorReport $rows $DoctorEmpty
 }
 function Start-Doctor {
-    $p=$DoctorProvider.SelectedItem;if($null-eq$p){Show-Toast 'Сначала выберите подключение.' 'warn';return};$targets=@((Get-ModelSnapshot)|Where-Object{$_.provider_id-eq$p.id});if(-not$targets.Count){Show-Toast 'Для подключения пока нет моделей.' 'warn';return};$BtnDoctorStart.IsEnabled=$false
-    $selectedProvider=@((ConvertTo-FlatArray (Invoke-Admin GET '/bridge/providers'))|Where-Object{$_.id-eq$p.id}|Select-Object -First 1)
-    if($selectedProvider -and $selectedProvider.kind-eq'yandex'){
+    $p=$DoctorProvider.SelectedItem;if($null-eq$p){Show-Toast 'Сначала выберите подключение.' 'warn';return};$targets=@((Get-ModelSnapshot)|Where-Object{($p.id-eq'*'-or$_.provider_id-eq$p.id)-and(-not[bool]$DoctorFailedOnly.IsChecked-or-not$_.chat_verified-or$_.status-eq'error')});if(-not$targets.Count){Show-Toast 'Нет моделей, подходящих под выбранный фильтр.' 'warn';return};$BtnDoctorStart.IsEnabled=$false
+    $selectedProvider=@((ConvertTo-FlatArray (Invoke-Admin GET '/bridge/providers'))|Where-Object{$_.id-eq$p.id-or($p.id-eq'*'-and$_.kind-eq'yandex')}|Select-Object -First 1)
+    if($selectedProvider -and ($selectedProvider.kind-eq'yandex'-or$p.id-eq'*')){
         $answer=[Windows.MessageBox]::Show(("Глубокая проверка Yandex выполнит несколько платных запросов для каждой из {0} моделей. Автоматический prompt cache уменьшает стоимость повторяющихся префиксов, но первая проверка тарифицируется. Продолжить?"-f$targets.Count),'OmniBridge · Yandex Model Doctor','YesNo','Warning')
         if($answer-ne'Yes'){$BtnDoctorStart.IsEnabled=$true;return}
     }
-    try{$done=0;foreach($m in $targets){$null=Invoke-Admin POST '/bridge/probe' @{model_id=$m.id;deep=$true} 220;$done++;$BtnDoctorStart.Content=("Проверено {0} из {1}"-f$done,$targets.Count);[Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([action]{},'Background')};Refresh-Models;Refresh-DoctorReport;Refresh-Dashboard;Show-Toast 'Model Doctor завершил проверку.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}finally{$BtnDoctorStart.IsEnabled=$true;$BtnDoctorStart.Content='Запустить проверку'}
+    try{$done=0;$failed=0;foreach($m in $targets){try{$null=Invoke-Admin POST '/bridge/probe' @{model_id=$m.id;deep=$true} 220}catch{$failed++};$done++;$BtnDoctorStart.Content=("{0}/{1}"-f$done,$targets.Count);[Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([action]{},'Background')};Refresh-Models;Refresh-DoctorReport;Refresh-Dashboard;Show-Toast ("Model Doctor: проверено {0}, ошибок {1}."-f$done,$failed) $(if($failed){'warn'}else{'ok'})}finally{$BtnDoctorStart.IsEnabled=$true;$BtnDoctorStart.Content='Запустить'}
 }
 
 function Refresh-Integration {
@@ -400,21 +412,30 @@ function Refresh-Logs {
 }
 
 function Refresh-Routes {
-    try{$script:RouteConfig=Invoke-Admin GET '/bridge/router';$rows=@();if($script:RouteConfig.aliases){foreach($prop in $script:RouteConfig.aliases.psobject.Properties){$rows+=[pscustomobject]@{alias=$prop.Name;target=[string]$prop.Value}}};Set-ControlItems $RoutesList $rows $RoutesEmpty;$BtnRouteDelete.IsEnabled=$rows.Count-gt0}catch{Set-ControlItems $RoutesList @() $RoutesEmpty;$BtnRouteDelete.IsEnabled=$false}
+    try{$script:RouteConfig=Invoke-Admin GET '/bridge/router';$rows=@();if($script:RouteConfig.aliases){foreach($prop in $script:RouteConfig.aliases.psobject.Properties){$policy=$null;if($script:RouteConfig.policies){$pp=$script:RouteConfig.policies.psobject.Properties[$prop.Name];if($pp){$policy=$pp.Value}};$count=if($policy){@($policy.candidates).Count}else{1};$mode=if($policy){[string]$policy.mode}else{'direct'};$rows+=[pscustomobject]@{alias=$prop.Name;target=('{0} · {1} моделей'-f$mode,$count)}}};Set-ControlItems $RoutesList $rows $RoutesEmpty;$BtnRouteDelete.IsEnabled=$rows.Count-gt0}catch{Set-ControlItems $RoutesList @() $RoutesEmpty;$BtnRouteDelete.IsEnabled=$false}
 }
 function Copy-RouteArrayMap($Value){
     $map=@{}
     if($Value){foreach($p in $Value.psobject.Properties){$map[$p.Name]=@($p.Value)}}
     return $map
 }
+function Copy-PolicyMap($Value){
+    $map=@{}
+    if($Value){foreach($p in $Value.psobject.Properties){$x=$p.Value;$weights=@{};$quota=@{};$cost=@{};if($x.weights){foreach($w in $x.weights.psobject.Properties){$weights[$w.Name]=[double]$w.Value}};if($x.quota_hints){foreach($w in $x.quota_hints.psobject.Properties){$quota[$w.Name]=[double]$w.Value}};if($x.cost_hints){foreach($w in $x.cost_hints.psobject.Properties){$cost[$w.Name]=[double]$w.Value}};$map[$p.Name]=@{mode=[string]$x.mode;candidates=@($x.candidates);weights=$weights;quota_hints=$quota;cost_hints=$cost}}}
+    return $map
+}
 function Save-Route {
-    $alias=$RouteAlias.Text.Trim();$m=$RouteModel.SelectedItem;if(-not$alias-or$null-eq$m){Show-Toast 'Укажите alias и модель.' 'warn';return}
+    $alias=$RouteAlias.Text.Trim();$selected=@($RouteModel.SelectedItems);if(-not$selected.Count-and$RouteModel.SelectedItem){$selected=@($RouteModel.SelectedItem)};if(-not$alias-or-not$selected.Count){Show-Toast 'Укажите alias и выберите одну или несколько проверенных моделей.' 'warn';return}
     try{
-        $aliases=@{};if($script:RouteConfig.aliases){foreach($p in $script:RouteConfig.aliases.psobject.Properties){$aliases[$p.Name]=[string]$p.Value}};$aliases[$alias]=$m.id
-        $priorities=Copy-RouteArrayMap $script:RouteConfig.priorities;$fallbacks=Copy-RouteArrayMap $script:RouteConfig.fallbacks
+        $ids=@($selected|ForEach-Object{[string]$_.id});$aliases=@{};if($script:RouteConfig.aliases){foreach($p in $script:RouteConfig.aliases.psobject.Properties){$aliases[$p.Name]=[string]$p.Value}};$aliases[$alias]=$ids[0]
+        $priorities=Copy-RouteArrayMap $script:RouteConfig.priorities;$fallbacks=Copy-RouteArrayMap $script:RouteConfig.fallbacks;$policies=Copy-PolicyMap $script:RouteConfig.policies
+        $priorities[$alias]=$ids;$fallbacks[$alias]=if($ids.Count-gt1){@($ids[1..($ids.Count-1)])}else{@()}
+        $mode=if($RouteStrategy.SelectedItem){[string]$RouteStrategy.SelectedItem.id}else{'priority'};$weights=@{};$rawWeights=@($RouteWeights.Text-split'[,; ]+'|Where-Object{$_})
+        for($i=0;$i-lt$ids.Count;$i++){$weight=1.0;if($i-lt$rawWeights.Count){$null=[double]::TryParse($rawWeights[$i],[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$weight);if($weight-le0){$weight=1.0}};$weights[$ids[$i]]=$weight}
+        $policies[$alias]=@{mode=$mode;candidates=$ids;weights=$weights}
         $maxRetries=if($null-ne$script:RouteConfig.max_retries){[int]$script:RouteConfig.max_retries}else{2}
-        $script:RouteConfig=Invoke-Admin PUT '/bridge/router' @{aliases=$aliases;priorities=$priorities;fallbacks=$fallbacks;max_retries=$maxRetries}
-        Refresh-Routes;Show-Toast 'Маршрут сохранён.' 'ok'
+        $script:RouteConfig=Invoke-Admin PUT '/bridge/router' @{aliases=$aliases;priorities=$priorities;fallbacks=$fallbacks;policies=$policies;max_retries=$maxRetries;session_stickiness=[bool]$RouteStickiness.IsChecked;session_ttl_seconds=1800}
+        Refresh-Routes;Show-Toast ('Маршрут сохранён: '+$ids.Count+' моделей.') 'ok'
     }catch{Show-Toast $_.Exception.Message 'error'}
 }
 function Get-RouterProfiles {
@@ -801,7 +822,7 @@ $BtnAccountInfo.Add_Click({$a=Selected-Account;if($a){try{$i=Invoke-Admin GET ("
 $BtnAccountLogout.Add_Click({$a=Selected-Account;if($a){try{$null=Invoke-Admin POST ("/bridge/accounts/$($a.id)/logout") @{};Refresh-Accounts;Refresh-Dashboard;Show-Toast 'Выполнен выход из аккаунта.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}}})
 
 # Models, Doctor, Integration, Logs, Settings.
-$ModelsSearch.Add_TextChanged({$ModelsSearchPlaceholder.Visibility=if($ModelsSearch.Text){'Collapsed'}else{'Visible'};Apply-ModelFilter});$ModelsProviderFilter.Add_SelectionChanged({Apply-ModelFilter});$ModelsSourceFilter.Add_SelectionChanged({Apply-ModelFilter});$BtnModelsRefresh.Add_Click({Refresh-Models});$ModelsList.Add_SelectionChanged({Update-ModelDetail});$BtnProbeSelectedModel.Add_Click({Probe-SelectedModel})
+$ModelsSearch.Add_TextChanged({$ModelsSearchPlaceholder.Visibility=if($ModelsSearch.Text){'Collapsed'}else{'Visible'};Apply-ModelFilter});$ModelsProviderFilter.Add_SelectionChanged({Apply-ModelFilter});$ModelsSourceFilter.Add_SelectionChanged({Apply-ModelFilter});$ModelsSort.Add_SelectionChanged({Apply-ModelFilter});$BtnModelsRefresh.Add_Click({Refresh-Models});$ModelsList.Add_SelectionChanged({Update-ModelDetail});$BtnProbeSelectedModel.Add_Click({Probe-SelectedModel})
 $BtnDoctorStart.Add_Click({Start-Doctor});$BtnDoctorReportRefresh.Add_Click({Refresh-DoctorReport})
 $BtnRouterRefresh.Add_Click({Refresh-RouterUI});$RouterProfile.Add_SelectionChanged({if($script:CurrentPage-eq'router'){Refresh-RouterUI}});$BtnRouterEvaluate.Add_Click({Invoke-RouterDryRun})
 $BtnVSSync.Add_Click({try{Sync-VSCode;$VSStatus.Text='Синхронизировано · перезапустите VS Code';$VSLastSync.Text=('Последняя синхронизация: '+(Get-Date -Format 'HH:mm:ss'));Show-Toast 'Синхронизировано. Перезапустите VS Code; при первом добавлении включите 👁 в Manage Models.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
@@ -815,7 +836,7 @@ $BtnLogsRefresh.Add_Click({Refresh-Logs});$BtnLogsFolder.Add_Click({Open-Folder 
 $BtnRestartServer.Add_Click({Restart-Server});$BtnOpenData.Add_Click({Open-Folder (Join-Path $script:Root 'data')});$BtnOpenRoot.Add_Click({Open-Folder $script:Root});$BtnBackup.Add_Click({Create-Backup});$BtnRouteSave.Add_Click({Save-Route})
 $BtnRouteDelete.Add_Click({
     $r=$RoutesList.SelectedItem
-    if($r){try{$aliases=@{};foreach($p in $script:RouteConfig.aliases.psobject.Properties){if($p.Name -ne $r.alias){$aliases[$p.Name]=[string]$p.Value}};$priorities=Copy-RouteArrayMap $script:RouteConfig.priorities;$fallbacks=Copy-RouteArrayMap $script:RouteConfig.fallbacks;$maxRetries=if($null-ne$script:RouteConfig.max_retries){[int]$script:RouteConfig.max_retries}else{2};$script:RouteConfig=Invoke-Admin PUT '/bridge/router' @{aliases=$aliases;priorities=$priorities;fallbacks=$fallbacks;max_retries=$maxRetries};Refresh-Routes}catch{Show-Toast $_.Exception.Message 'error'}}
+    if($r){try{$aliases=@{};foreach($p in $script:RouteConfig.aliases.psobject.Properties){if($p.Name -ne $r.alias){$aliases[$p.Name]=[string]$p.Value}};$priorities=Copy-RouteArrayMap $script:RouteConfig.priorities;$fallbacks=Copy-RouteArrayMap $script:RouteConfig.fallbacks;$policies=Copy-PolicyMap $script:RouteConfig.policies;$priorities.Remove($r.alias);$fallbacks.Remove($r.alias);$policies.Remove($r.alias);$maxRetries=if($null-ne$script:RouteConfig.max_retries){[int]$script:RouteConfig.max_retries}else{2};$script:RouteConfig=Invoke-Admin PUT '/bridge/router' @{aliases=$aliases;priorities=$priorities;fallbacks=$fallbacks;policies=$policies;max_retries=$maxRetries};Refresh-Routes}catch{Show-Toast $_.Exception.Message 'error'}}
 })
 
 try{Ensure-Bridge|Out-Null;Refresh-Catalog;Refresh-All}catch{Show-Toast $_.Exception.Message 'error'}
