@@ -38,11 +38,12 @@ GITHUB
 [PASS] authenticated repository identified: mallstorm/OmniBridge
 [PASS] repository baseline is 1.0.0-rc5 and therefore older than this source
 [PASS] newer artifact-retention CI commits identified and preserved during RC6 overlay
+[PASS] GitHub Actions Windows: formatting, resource regeneration, Go tests, vet, UI validation and release ZIP build
+[WARN] GitHub artifact upload quota exhausted; upload is best-effort until GitHub recalculates storage
 
-PENDING WINDOWS ACCEPTANCE
-[PENDING] execute Windows-only SQLite REAL regression test on GitHub Actions
+REMAINING ACCEPTANCE
 [PENDING] run scripts/validate-ui.ps1 under Windows PowerShell 5.1
-[PENDING] regenerate .syso resources and build release ZIP with Go 1.27.x
+[PENDING] live WPF/Tray and DPAPI round-trip smoke test
 [PENDING] live credentials: Yandex models/chat/responses/tools/cache acceptance
 
 See docs/AUDIT_2026-08-29_RU.md for findings, comparison and roadmap.

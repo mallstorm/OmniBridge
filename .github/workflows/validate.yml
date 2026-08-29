@@ -40,6 +40,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-release.ps1 -Root $PWD
       - name: Upload release candidate
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: OmniBridge-${{ github.sha }}-Windows-x64
