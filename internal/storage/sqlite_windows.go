@@ -4,6 +4,7 @@ package storage
 
 import (
 	"fmt"
+	"strconv"
 	"syscall"
 	"unsafe"
 )
@@ -65,6 +66,16 @@ func cstr(ptr uintptr) string {
 	n, _, _ := pLstrlenA.Call(ptr)
 	return byteString(ptr, int(n))
 }
+
+func columnText(st uintptr, column int) string {
+	ptr, _, _ := pColumnText.Call(st, uintptr(column))
+	ln, _, _ := pColumnBytes.Call(st, uintptr(column))
+	if ptr == 0 || ln == 0 {
+		return ""
+	}
+	return byteString(ptr, int(ln))
+}
+
 func nativeOpen(path string) (nativeConn, error) {
 	if err := sqliteDLL.Load(); err != nil {
 		return nil, fmt.Errorf("load winsqlite3.dll: %w", err)
@@ -76,7 +87,14 @@ func nativeOpen(path string) (nativeConn, error) {
 	var db uintptr
 	rc, _, _ := pOpen.Call(uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(&db)), sqliteOpenReadWrite|sqliteOpenCreate|sqliteOpenFullMutex, 0)
 	if int(rc) != sqliteOK {
-		return nil, fmt.Errorf("sqlite open rc=%d", rc)
+		msg := "sqlite open failed"
+		if db != 0 {
+			if ep, _, _ := pErrMsg.Call(db); ep != 0 {
+				msg = cstr(ep)
+			}
+			pClose.Call(db)
+		}
+		return nil, fmt.Errorf("sqlite open: %s (rc=%d)", msg, rc)
 	}
 	return &winConn{db: db}, nil
 }
@@ -144,25 +162,22 @@ func (c *winConn) query(sql string) ([]Row, error) {
 				v, _, _ := pColumnInt64.Call(st, uintptr(i))
 				r[n] = int64(v)
 			case sqliteFloat:
-				ptr, _, _ := pColumnText.Call(st, uintptr(i))
-				ln, _, _ := pColumnBytes.Call(st, uintptr(i))
-				if ptr == 0 || ln == 0 {
-					r[n] = ""
-				} else {
-					r[n] = byteString(ptr, int(ln))
+				// syscall.Proc.Call cannot retrieve an x64 floating-point return
+				// from sqlite3_column_double (XMM0). SQLite's canonical text
+				// representation is locale-independent, so parse it explicitly and
+				// keep Row types identical to the cgo implementation.
+				text := columnText(st, i)
+				v, err := strconv.ParseFloat(text, 64)
+				if err != nil {
+					return nil, fmt.Errorf("sqlite float column %s: %w", n, err)
 				}
+				r[n] = v
 			case sqliteNull:
 				r[n] = nil
 			case sqliteText:
 				fallthrough
 			default:
-				ptr, _, _ := pColumnText.Call(st, uintptr(i))
-				ln, _, _ := pColumnBytes.Call(st, uintptr(i))
-				if ptr == 0 || ln == 0 {
-					r[n] = ""
-				} else {
-					r[n] = byteString(ptr, int(ln))
-				}
+				r[n] = columnText(st, i)
 			}
 		}
 		out = append(out, r)

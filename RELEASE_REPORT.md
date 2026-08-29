@@ -1,8 +1,19 @@
-# OmniBridge 1.0.0-rc5 — Release Report
+# OmniBridge 1.0.0-rc6 — Release Report
 
 ## Назначение
 
-RC5 развивает подтверждённую базу `1.0.0-rc4`: добавляет профессиональное подключение Yandex AI Studio и стабилизирует Core/UI при длительных генерациях, массовом discovery и Deep Model Doctor. Визуальное лицо WPF/PowerShell UI 3.0 и Tray не менялось.
+RC6 развивает подтверждённую базу `1.0.0-rc5`: исправляет идентификацию Yandex-моделей в discovery, маршрутизации и VS Code, устраняет XAML/manifest version drift и исправляет Windows-специфичное чтение SQLite `REAL`. Визуальное лицо WPF/PowerShell UI 3.0 и Tray не менялось.
+
+## RC6
+
+- Yandex URI приводятся к `gpt://<FolderId>/<slug>` и разрешаются как по registry ID, так и по native URI/slug;
+- известные Yandex-модели получают читаемые имена и capability metadata;
+- голосовые, realtime, TTS/STT и embedding endpoints исключены из VS Code Chat export;
+- PowerShell UI больше не присваивает зарезервированную переменную `$PID`;
+- версия `1.0.0-rc6` синхронизирована между Core, `VERSION.txt`, `RELEASE.json`, XAML и Windows manifest `1.0.0.6`;
+- Windows SQLite возвращает `REAL` как `float64`, а failed-open корректно закрывает handle;
+- сравнение локальных API-ключей переведено на constant-time SHA-256 comparison;
+- CI использует поддерживаемый Go 1.27.x и проверяет `gofmt`.
 
 ## Yandex AI Studio
 
@@ -34,16 +45,19 @@ RC5 развивает подтверждённую базу `1.0.0-rc4`: доб
 - Router 3.1, Protocol Engine 3.1, Context Guard, Quota & Cost, MCP, Observability;
 - DPAPI/Secret Store и localhost-only default.
 
-## Проверка в текущей среде
+## Проверка 29 августа 2026
 
-- структура ZIP и SHA-256 исходного RC4 проверены;
+- ZIP полностью распакован: 386 записей, ошибок CRC, опасных путей и symlink нет;
 - provider catalog JSON: 92 уникальных definition;
 - XAML XML parse: 14/14;
 - все 65 именованных UI Button имеют Click handler;
 - YAML workflow parse: PASS;
 - secret-pattern scan: PASS;
-- Go и PowerShell runtime в текущем Linux workspace отсутствуют, поэтому новый RC5 не объявляется binary-validated локально;
-- GitHub Actions workflow выполняет `go test ./...`, `go vet ./...`, UI validation и Windows x64 release build после публикации.
+- `go test ./...`: PASS с SQLite;
+- `go test -race ./...`: PASS;
+- `go vet ./...`: PASS для Linux и Windows target;
+- Windows x64 cross-build `OmniBridge.exe` и `OmniBridgeSetup.exe`: PASS;
+- нативный запуск WPF/PowerShell и Windows-only SQLite regression-test остаются задачей GitHub Actions/Windows acceptance.
 
 ## Windows acceptance
 

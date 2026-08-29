@@ -1,4 +1,8 @@
-# OmniBridge 1.0.0-rc5 — Universal AI Gateway
+# OmniBridge 1.0.0-rc6 — Universal AI Gateway
+
+## 1.0.0-rc6 — Yandex model identity, VS Code и release hardening
+
+`1.0.0-rc6` нормализует Yandex model URI и читаемые имена моделей, разрешает запросы по полному native URI и короткому slug, исключает не-чатовые Yandex endpoints из VS Code Chat export и исправляет PowerShell-конфликт с зарезервированной переменной `$PID`. Дополнительно синхронизированы версия Core, стартовые XAML-экраны и Windows manifest, исправлено чтение SQLite `REAL` на Windows и добавлены автоматические regression-тесты. Подробнее: `docs/RC6_VSCODE_YANDEX_FIX_RU.md` и `docs/AUDIT_2026-08-29_RU.md`.
 
 ## 1.0.0-rc5 — Yandex AI Studio + Stability
 
@@ -108,7 +112,7 @@ API/OAuth/bridge credentials защищаются DPAPI CurrentUser. Перен�
 Начиная с `0.4.6-alpha6` основная рабочая область составляет `1260×740`; дополнительное место используется для новых пользовательских сервисов при сохранении sidebar, карточек, типографики, цветов и общей композиции UI 3.0.
 
 ## Сборка
-Требуется Go 1.23+. `build-release.cmd` выполняет tests/vet/UI validation и создаёт Windows x64 release package.
+Исходники сохраняют совместимость языка с Go 1.23, но релизные сборки и CI должны выполняться поддерживаемой версией Go (сейчас Go 1.27.x). `build-release.cmd` выполняет tests/vet/UI validation и создаёт Windows x64 release package.
 
 
 ## Tray Dashboard rc6

@@ -1,6 +1,6 @@
 # OmniBridge UI 3.0 — implementation notes
 
-Версия: 1.0.0-rc5
+Версия: 1.0.0-rc6
 
 ## Архитектурное изменение
 

@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,31 +38,31 @@ import (
 )
 
 type Server struct {
-	Config         *config.Store
-	Secrets        *secretstore.Store
-	Providers      *providers.Manager
-	Accounts       *accounts.Manager
-	Registry       *registry.Registry
-	Stats          *stats.Store
-	Health         *health.Store
-	Storage        *storage.DB
-	Logger         *log.Logger
-	httpServer     *http.Server
-	shutting       atomic.Bool
-	paused         atomic.Bool
-	startedAt      time.Time
-	trayRefreshing atomic.Bool
-	trayMu         sync.Mutex
-	trayRefreshAt  time.Time
-	trayRefreshErr string
-	Resilience     *resilience.Manager
-	ControlFlight  *resilience.SingleFlight
-	Router         *obr.Engine
-	QuotaCost      *quotacost.Engine
-	Integrations   *integrations.Hub
-	MCP            *mcpcontrol.Control
-	Observability  *observability.Recorder
-	Root           string
+	Config          *config.Store
+	Secrets         *secretstore.Store
+	Providers       *providers.Manager
+	Accounts        *accounts.Manager
+	Registry        *registry.Registry
+	Stats           *stats.Store
+	Health          *health.Store
+	Storage         *storage.DB
+	Logger          *log.Logger
+	httpServer      *http.Server
+	shutting        atomic.Bool
+	paused          atomic.Bool
+	startedAt       time.Time
+	trayRefreshing  atomic.Bool
+	trayMu          sync.Mutex
+	trayRefreshAt   time.Time
+	trayRefreshErr  string
+	Resilience      *resilience.Manager
+	ControlFlight   *resilience.SingleFlight
+	Router          *obr.Engine
+	QuotaCost       *quotacost.Engine
+	Integrations    *integrations.Hub
+	MCP             *mcpcontrol.Control
+	Observability   *observability.Recorder
+	Root            string
 	generationSlots chan struct{}
 	probeSlots      chan struct{}
 }
@@ -361,9 +363,15 @@ func bearerToken(v string) string {
 }
 
 func authOK(r *http.Request, key string) bool {
+	expected := sha256.Sum256([]byte(key))
 	candidates := []string{bearerToken(r.Header.Get("Authorization")), r.Header.Get("x-api-key"), r.Header.Get("api-key"), r.Header.Get("x-bridge-key")}
 	for _, v := range candidates {
-		if strings.TrimSpace(v) != "" && strings.TrimSpace(v) == key {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		candidate := sha256.Sum256([]byte(v))
+		if subtle.ConstantTimeCompare(candidate[:], expected[:]) == 1 {
 			return true
 		}
 	}
@@ -377,7 +385,7 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 		data = append(data, map[string]any{"id": v, "object": "model", "owned_by": "omnibridge-router", "type": "virtual"})
 	}
 	for _, m := range mods {
-		data = append(data, map[string]any{"id": m.ID, "object": "model", "owned_by": m.ProviderID, "type": m.Type})
+		data = append(data, map[string]any{"id": m.ID, "object": "model", "owned_by": m.ProviderID, "type": m.Type, "name": m.Name, "native_id": m.NativeID})
 	}
 	jsonOut(w, http.StatusOK, map[string]any{"object": "list", "data": data})
 }
@@ -404,8 +412,8 @@ func (s *Server) resolveModel(modelID string) (providers.Model, error) {
 	if target := strings.TrimSpace(s.Config.Get().Routing.Aliases[modelID]); target != "" {
 		modelID = target
 	}
-	if strings.Contains(modelID, "/") {
-		return s.Registry.Find(modelID)
+	if m, err := s.Registry.Find(modelID); err == nil {
+		return m, nil
 	}
 	matches := []providers.Model{}
 	for _, m := range s.Registry.Models() {
@@ -541,33 +549,50 @@ func (s *Server) resolveRoutingID(id string) ([]providers.Model, error) {
 	if target := strings.TrimSpace(s.Config.Get().Routing.Aliases[id]); target != "" {
 		id = target
 	}
-	if strings.Contains(id, "/") {
-		m, err := s.Registry.Find(id)
-		if err != nil {
-			return nil, err
-		}
-		return []providers.Model{m}, nil
+	out := []providers.Model{}
+	seen := map[string]bool{}
+	// 1) Exact registry ID is authoritative (provider/native-qualified form).
+	if m, err := s.Registry.Find(id); err == nil {
+		out = append(out, m)
+		seen[m.ID] = true
 	}
-	matches := []providers.Model{}
+	// 2) Yandex and other native providers expose ids that contain '/' (for
+	// example "gpt://<folder>/yandexgpt/latest"). Match an exact native id too so
+	// requests coming from older BYOK VS Code entries work without re-sync.
 	for _, m := range s.Registry.Models() {
-		if m.NativeID == id {
-			matches = append(matches, m)
+		if !seen[m.ID] && m.NativeID == id {
+			seen[m.ID] = true
+			out = append(out, m)
 		}
 	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("model %q not found", id)
-	}
-	sort.SliceStable(matches, func(i, j int) bool {
-		if s.Resilience != nil {
-			ri := s.Resilience.HealthRank(resilienceConnectionKey(matches[i]))
-			rj := s.Resilience.HealthRank(resilienceConnectionKey(matches[j]))
-			if ri != rj {
-				return ri < rj
+	// 3) Allow short native refs without the folder prefix ("yandexgpt/latest").
+	if len(out) == 0 {
+		want := providers.NativeModelSlug(id)
+		for _, m := range s.Registry.Models() {
+			if providers.NativeModelSlug(m.NativeID) == want {
+				if !seen[m.ID] {
+					seen[m.ID] = true
+					out = append(out, m)
+				}
 			}
 		}
-		return matches[i].ID < matches[j].ID
-	})
-	return matches, nil
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("model %q not found", id)
+	}
+	if len(out) > 1 {
+		sort.SliceStable(out, func(i, j int) bool {
+			if s.Resilience != nil {
+				ri := s.Resilience.HealthRank(resilienceConnectionKey(out[i]))
+				rj := s.Resilience.HealthRank(resilienceConnectionKey(out[j]))
+				if ri != rj {
+					return ri < rj
+				}
+			}
+			return out[i].ID < out[j].ID
+		})
+	}
+	return out, nil
 }
 
 func (s *Server) routerCandidatePool(policy config.RoutingPolicy) ([]providers.Model, error) {

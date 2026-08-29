@@ -1,44 +1,48 @@
-OmniBridge 1.0.0-rc5 — VALIDATION REPORT
+OmniBridge 1.0.0-rc6 — VALIDATION REPORT
 =========================================
-Scope: Yandex AI Studio native provider + load stabilization
+Audit date: 2026-08-29
+Scope: full source archive, RC6 Yandex/VS Code changes, release consistency, GitHub baseline
 
-BASELINE
-[PASS] OmniBridge_1.0.0-rc4_SOURCE archive structure inspected
-[PASS] original archive SHA-256 recorded
-[PASS] RC4 contains completed stages 1–15 and supersedes rc6/0.4.x stage artifacts
-[PASS] RC4 VS Code auth, GigaChat TLS, UI 3.0 and Tray contracts preserved
+ARCHIVE
+[PASS] ZIP integrity/CRC: 386 entries
+[PASS] path traversal scan: 0 unsafe paths
+[PASS] symlink scan: 0 symlinks
+[PASS] source tree extracted completely
 
-YANDEX
-[PASS] native provider definition and executor present
-[PASS] API key and Folder ID are separate inputs
-[PASS] Authorization uses Api-Key, not Bearer
-[PASS] OpenAI-Project is derived from validated Folder ID
-[PASS] /v1/models, Responses and Chat Completions configured
-[PASS] API key remains CredentialRef/Secret Store only
-[PASS] cached_tokens extraction covers Chat and Responses usage
-[PASS] Quota & Cost receives cached input token count
-[PASS] Yandex deep Doctor is preferred-protocol-only and cost-confirmed in UI
+VERSION / RELEASE
+[PASS] Core/VERSION.txt/RELEASE.json: 1.0.0-rc6
+[PASS] static XAML fallback version: 1.0.0-rc6
+[PASS] Windows assembly manifest version: 1.0.0.6
+[PASS] automated release-version consistency test added
+[PASS] stale root SHA256SUMS regenerated after audit
 
-STABILITY
-[PASS] generation concurrency bounded at 16
-[PASS] deep probe concurrency bounded at 2
-[PASS] discovery concurrency bounded at 4
-[PASS] overload response is HTTP 429 gateway_busy + Retry-After
-[PASS] request/background/tray panic isolation present
-[PASS] usage events append immediately; full snapshots are coalesced
-[PASS] graceful Stats.Flush is wired before SQLite close
+GO / STORAGE / SECURITY
+[PASS] gofmt: clean
+[PASS] go test ./... with SQLite
+[PASS] go test -race ./... with SQLite
+[PASS] go vet ./...
+[PASS] GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+[PASS] Windows x64 cross-build: OmniBridge.exe + OmniBridgeSetup.exe
+[PASS] Windows SQLite REAL conversion fixed and Windows regression test added
+[PASS] local API key comparison uses constant-time digest comparison
 
-STATIC UI / PACKAGE
-[PASS] provider catalog JSON parse: 92 unique providers
+PROVIDER / UI STATIC VALIDATION
+[PASS] provider catalog JSON: 92 unique definitions
+[PASS] support levels classified: 5 native, 18 preset, 4 local, 14 local-template, 47 template, 3 reserved, 1 custom
 [PASS] XAML XML parse: 14/14
 [PASS] named Button handlers: 65/65
 [PASS] workflow YAML parse
-[PASS] secret-pattern scan
-[PASS] embedded manifest version: 1.0.0.5
+[PASS] secret-like filename/pattern scan
 
-TO BE EXECUTED BY GITHUB ACTIONS / WINDOWS
-[PENDING] go test ./...
-[PENDING] go vet ./...
-[PENDING] scripts/validate-ui.ps1
-[PENDING] Windows x64 CGO_ENABLED=0 build
-[PENDING] live Yandex credentials: models/chat/responses/tools/cache acceptance
+GITHUB
+[PASS] authenticated repository identified: mallstorm/OmniBridge
+[PASS] repository baseline is 1.0.0-rc5 and therefore older than this source
+[PASS] newer artifact-retention CI commits identified and preserved during RC6 overlay
+
+PENDING WINDOWS ACCEPTANCE
+[PENDING] execute Windows-only SQLite REAL regression test on GitHub Actions
+[PENDING] run scripts/validate-ui.ps1 under Windows PowerShell 5.1
+[PENDING] regenerate .syso resources and build release ZIP with Go 1.27.x
+[PENDING] live credentials: Yandex models/chat/responses/tools/cache acceptance
+
+See docs/AUDIT_2026-08-29_RU.md for findings, comparison and roadmap.

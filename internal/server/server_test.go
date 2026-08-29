@@ -1345,6 +1345,69 @@ func TestVSCodeExportIncludesVirtualAgentModels(t *testing.T) {
 	}
 }
 
+func TestVSCodeExportFiltersYandexNonChatModels(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []any{
+					map[string]any{"id": "gpt://b1g-folder/yandexgpt-5.1"},
+					map[string]any{"id": "gpt://b1g-folder/deepseek-v4-flash/latest"},
+					map[string]any{"id": "gpt://b1g-folder/speech-realtime-deepseek-v4-flash"},
+					map[string]any{"id": "gpt://b1g-folder/tts-x"},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	dir := t.TempDir()
+	cfg, err := config.New(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec := secretstore.New(filepath.Join(dir, "secrets.json"))
+	_ = sec.Put("provider:yandex-test", "AQVN-test")
+	if err := cfg.UpsertProvider(config.Provider{
+		ID: "yandex-test", Name: "Yandex AI Studio", Kind: "yandex", ProjectID: "b1g-folder",
+		BaseURL: upstream.URL + "/v1", ModelsURL: upstream.URL + "/v1/models",
+		CredentialRef: "provider:yandex-test", Enabled: true,
+		PreferredProtocol: "responses", Protocols: []string{"responses", "chat-completions"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pm := providers.NewManager(sec)
+	am := accounts.NewManager(dir, sec)
+	reg := registry.New(filepath.Join(dir, "models.json"), cfg, pm, am)
+	reg.RefreshAll(context.Background())
+	st := stats.New(filepath.Join(dir, "stats.json"))
+	srv := New(cfg, sec, pm, am, reg, st, log.New(io.Discard, "", 0))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/bridge/vscode/export", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.Get().AdminAPIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	text := string(raw)
+	if !strings.Contains(text, `"yandex-test/gpt://b1g-folder/yandexgpt-5.1"`) {
+		t.Fatalf("yandexgpt-5.1 expected in export: %s", text)
+	}
+	if !strings.Contains(text, `"yandex-test/gpt://b1g-folder/deepseek-v4-flash/latest"`) {
+		t.Fatalf("deepseek expected in export: %s", text)
+	}
+	for _, forbidden := range []string{"speech-realtime-deepseek", "tts-x"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("non-chat model %s unexpectedly exported: %s", forbidden, text)
+		}
+	}
+}
+
 func TestAuthOKAcceptsGoodBridgeKeyAlongsideStaleBearer(t *testing.T) {
 	key := "bridge-secret"
 	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/v1/models", nil)
@@ -1373,5 +1436,108 @@ func TestAuthOKAcceptsCaseInsensitiveBearerAndBridgeHeader(t *testing.T) {
 				t.Fatal("expected auth to pass")
 			}
 		})
+	}
+}
+
+func TestAuthOKRejectsEmptyAndIncorrectKeys(t *testing.T) {
+	key := "bridge-secret"
+	for _, value := range []string{"", "bridge-secre", "bridge-secret-extra"} {
+		r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/v1/models", nil)
+		if value != "" {
+			r.Header.Set("Authorization", "Bearer "+value)
+		}
+		if authOK(r, key) {
+			t.Fatalf("unexpected auth success for %q", value)
+		}
+	}
+}
+
+func TestYandexNativeURIRequestResolvesAndProxies(t *testing.T) {
+	var gotModel string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Api-Key AQVN-test" {
+			http.Error(w, "bad auth", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("OpenAI-Project") != "b1g-folder" {
+			http.Error(w, "bad project", http.StatusBadRequest)
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{map[string]any{"id": "gpt://b1g-folder/yandexgpt/latest"}}})
+		case "/v1/responses":
+			b, _ := io.ReadAll(r.Body)
+			var bodyMap map[string]any
+			_ = json.Unmarshal(b, &bodyMap)
+			gotModel, _ = bodyMap["model"].(string)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "resp_1", "object": "response", "model": "gpt://b1g-folder/yandexgpt/latest",
+				"output": []any{map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": "OK"}}}},
+				"usage":  map[string]any{"input_tokens": 2, "output_tokens": 1, "total_tokens": 3},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	dir := t.TempDir()
+	cfg, err := config.New(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec := secretstore.New(filepath.Join(dir, "secrets.json"))
+	_ = sec.Put("provider:yandex-test", "AQVN-test")
+	p := config.NormalizeProvider(config.Provider{
+		ID: "yandex-test", Name: "Yandex AI Studio", Kind: "yandex", ProjectID: "b1g-folder",
+		BaseURL: upstream.URL + "/v1", ModelsURL: upstream.URL + "/v1/models", CredentialRef: "provider:yandex-test", Enabled: true,
+	})
+	if err := cfg.UpsertProvider(p); err != nil {
+		t.Fatal(err)
+	}
+	pm := providers.NewManager(sec)
+	am := accounts.NewManager(dir, sec)
+	reg := registry.New(filepath.Join(dir, "models.json"), cfg, pm, am)
+	reg.RefreshAll(context.Background())
+	st := stats.New(filepath.Join(dir, "stats.json"))
+	srv := New(cfg, sec, pm, am, reg, st, log.New(io.Discard, "", 0))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	c := cfg.Get()
+
+	// The exported VS Code entry sends the qualified id.
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/responses", strings.NewReader(`{"model":"yandex-test/gpt://b1g-folder/yandexgpt/latest","input":"hi"}`))
+	req.Header.Set("Authorization", "Bearer "+c.DataAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("qualified route status=%d body=%s", resp.StatusCode, rb)
+	}
+	if gotModel != "gpt://b1g-folder/yandexgpt/latest" {
+		t.Fatalf("upstream model=%q", gotModel)
+	}
+
+	// Legacy BYOK VS Code entries and direct clients send the raw native URI.
+	gotModel = ""
+	req, _ = http.NewRequest("POST", ts.URL+"/v1/responses", strings.NewReader(`{"model":"gpt://b1g-folder/yandexgpt/latest","input":"hi"}`))
+	req.Header.Set("Authorization", "Bearer "+c.DataAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("native route status=%d body=%s", resp.StatusCode, rb)
+	}
+	if gotModel != "gpt://b1g-folder/yandexgpt/latest" {
+		t.Fatalf("native upstream model=%q", gotModel)
 	}
 }

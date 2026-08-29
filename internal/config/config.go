@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	CurrentVersion       = "1.0.0-rc5"
+	CurrentVersion       = "1.0.0-rc6"
 	CurrentSchemaVersion = 5
 )
 

@@ -135,8 +135,8 @@ function Model-Icon($Model){
         @('hunyuan','hunyuan')
     )){if($modelID-match$spec[1]){$family=$spec[0];break}}
     if($family){$img=Asset ('model-families\'+$family+'.png');if($img){return $img}}
-    $pid=[string]$Model.provider_id
-    if($pid){$img=Asset ('providers\'+$pid+'.png');if($img){return $img}}
+    $providerIconID=[string]$Model.provider_id
+    if($providerIconID){$img=Asset ('providers\'+$providerIconID+'.png');if($img){return $img}}
     return Asset 'nav_models.png'
 }
 function Model-Class($m){
@@ -243,8 +243,14 @@ function Add-Provider {
     $x=$ProviderPreset.SelectedItem;if($null-eq$x){return};$p=$x.raw
     $body=@{kind=$p.id;name=$ProviderName.Text.Trim();base_url=$ProviderBaseUrl.Text.Trim();api_key=$ProviderApiKey.Password;allow_unverified=[bool]$ProviderAllowUnverified.IsChecked}
     if($p.id-eq'gigachat'){$body.scope=[string]$ProviderScope.Text}
-    if($p.id-eq'yandex'){$body.project_id=$ProviderYandexFolderID.Text.Trim()}
-    try{Show-Toast 'Проверяю endpoint и получаю модели…';$null=Invoke-Admin POST '/bridge/providers' $body 100;$ProviderApiKey.Clear();Refresh-Providers;Refresh-Models;Refresh-Dashboard;Show-Toast 'Провайдер подключён и Model Registry обновлён.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}
+    if($p.id-eq'yandex'){
+        $folder=$ProviderYandexFolderID.Text.Trim()
+        if([string]::IsNullOrWhiteSpace($folder)){Show-Toast 'Укажите Yandex Cloud Folder ID (заголовок OpenAI-Project).' 'warn';return}
+        $body.project_id=$folder
+    }
+    try{Show-Toast 'Проверяю endpoint и получаю модели…';$r=Invoke-Admin POST '/bridge/providers' $body 100;$ProviderApiKey.Clear();Refresh-Providers;Refresh-Models;Refresh-Dashboard
+        $disc=[int]$r.models_discovered;if($r.warning){Show-Toast ("Провайдер добавлен ({0} моделей). Предупреждение: {1}" -f $disc,$r.warning) 'warn'}else{Show-Toast ("Провайдер подключён: найдено моделей {0}." -f $disc) 'ok'}
+    }catch{Show-Toast $_.Exception.Message 'error'}
 }
 
 function Refresh-Accounts {

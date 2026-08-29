@@ -10,7 +10,7 @@
 
 `da6f35c3adba1b12e59cace307f6991836e4c4e345ce79e49eb48b460c830623`.
 
-Текущая ветка исходников получила номер `1.0.0-rc5`, потому что в неё добавлены новый native provider Yandex AI Studio и отдельный пакет стабилизации.
+Текущая ветка исходников получила номер `1.0.0-rc6`: она сохраняет native provider Yandex AI Studio из RC5 и добавляет нормализацию моделей, VS Code fixes и release hardening.
 
 ## Раннее целевое ТЗ
 
@@ -44,6 +44,7 @@ OmniBridge задумывался как локальный Windows AI gateway �
 | 10–14 | `0.4.13-alpha13` | Quota & Cost, Context Guard, Integration Hub, MCP, Observability/Remote |
 | 15 | `1.0.0-rc1`–`rc4` | Release engineering, VS Code picker/auth, GigaChat TLS, Model UI fixes |
 | 16 | `1.0.0-rc5` | Yandex AI Studio и стабилизация тяжёлых операций |
+| 17 | `1.0.0-rc6` | Yandex model identity, VS Code export и release hardening |
 
 ## Полный контекст ветки Yandex
 

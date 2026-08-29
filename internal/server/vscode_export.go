@@ -34,6 +34,29 @@ func bridgeKeyFingerprint(key string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// vscodeModelExcluded hides models that are physically reachable through the
+// gateway but must not appear in the VS Code Custom Endpoint picker. The Chat
+// (Copilot) surface expects conversational models only; Yandex AI Studio also
+// lists speech/realtime/vision/embedding suites which would break agent flows.
+func (s *Server) vscodeModelExcluded(m providers.Model) bool {
+	if m.Status == "error" {
+		return true
+	}
+	if m.ProviderID == "" {
+		return false
+	}
+	for _, p := range s.Config.Get().Providers {
+		if p.ID == m.ProviderID && p.Enabled {
+			if p.Kind == "yandex" && !providers.YandexChatUsable(m.NativeID) {
+				return true
+			}
+			return false
+		}
+	}
+	// Account/Local sources keep their existing behaviour.
+	return false
+}
+
 func vscodeAPIPath(apiType string) string {
 	switch strings.ToLower(strings.TrimSpace(apiType)) {
 	case "messages":
@@ -58,7 +81,7 @@ func vscodeTokenLimits(contextWindow, maxOutput int) (context, maxInput, output 
 	return
 }
 
-func vscodeModelFromRegistry(base string, m providers.Model) (vscodeExportModel, bool) {
+func (s *Server) vscodeModelFromRegistry(base string, m providers.Model) (vscodeExportModel, bool) {
 	apiType := strings.ToLower(strings.TrimSpace(m.APIType))
 	switch apiType {
 	case "messages", "responses", "chat-completions":
@@ -163,7 +186,10 @@ func (s *Server) bridgeVSCodeExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, m := range all {
-		if x, ok := vscodeModelFromRegistry(base, m); ok {
+		if s.vscodeModelExcluded(m) {
+			continue
+		}
+		if x, ok := s.vscodeModelFromRegistry(base, m); ok {
 			models = append(models, x)
 		}
 	}

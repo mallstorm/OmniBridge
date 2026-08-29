@@ -45,7 +45,7 @@
                 </Border>
 
                 <Border Style="{StaticResource Card}" Height="108" Padding="15,11" Margin="0,10,0,0">
-                    <Grid><StackPanel Margin="0,0,125,0"><TextBlock Text="Версия и обслуживание" Style="{StaticResource SectionTitle}"/><TextBlock x:Name="SettingsVersion" Text="1.0.0-rc5" Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/><TextBlock Text="Portable-данные не переносятся автоматически." Style="{StaticResource SecondaryText}" Margin="0,4,0,0"/></StackPanel><Button x:Name="BtnOpenRoot" Style="{StaticResource QuietButton}" Content="Открыть OmniBridge" Width="112" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Grid>
+                    <Grid><StackPanel Margin="0,0,125,0"><TextBlock Text="Версия и обслуживание" Style="{StaticResource SectionTitle}"/><TextBlock x:Name="SettingsVersion" Text="1.0.0-rc6" Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/><TextBlock Text="Portable-данные не переносятся автоматически." Style="{StaticResource SecondaryText}" Margin="0,4,0,0"/></StackPanel><Button x:Name="BtnOpenRoot" Style="{StaticResource QuietButton}" Content="Открыть OmniBridge" Width="112" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Grid>
                 </Border>
             </StackPanel>
         </Grid>

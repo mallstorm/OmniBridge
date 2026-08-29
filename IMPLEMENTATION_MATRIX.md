@@ -1,4 +1,4 @@
-# OmniBridge 1.0.0-rc5 — дорожная карта поколения 1.0
+# OmniBridge 1.0.0-rc6 — дорожная карта поколения 1.0
 
 | Этап | Статус | Результат |
 |---|---|---|
@@ -18,6 +18,11 @@
 | 14. Observability & Remote | **Выполнен в 0.4.13-alpha13** | Safe request tracing, P50/P95 telemetry, Prometheus metrics, TLS + CIDR fail-closed remote mode |
 | 15. 1.0 Release Engineering | **Выполнен в 1.0.0-rc1; RC2 integration patch** | release metadata, package verifier, readiness gate, version-aware install/update rollback, corruption fail-closed, VS Code Custom Endpoint picker/export hardening |
 | 16. Yandex + Stability hardening | **Выполнен в 1.0.0-rc5** | Native Yandex AI Studio, Api-Key + Folder ID, Responses/Chat, cached-token telemetry, overload limits, panic isolation, batched statistics |
+| 17. Yandex/VS Code + Release hardening | **Выполнен в 1.0.0-rc6** | Канонические Yandex URI/имена, фильтр chat-моделей для VS Code, UI `$PID` fix, version consistency, Windows SQLite REAL fix |
+
+## Этап 17 — Yandex/VS Code + Release hardening
+
+`1.0.0-rc6` устраняет расхождения native model URI между Yandex discovery, Model Registry, VS Code export и входящими запросами. Не-чатовые модели больше не попадают в Chat picker. Версия синхронизирована между Core, `VERSION.txt`, `RELEASE.json`, XAML и Windows manifest; отдельный тест блокирует повторный version drift. Windows SQLite сохраняет одинаковый тип `float64` для `REAL`, как и cgo-реализация.
 
 ## Этап 16 — Yandex AI Studio + Stability hardening
 

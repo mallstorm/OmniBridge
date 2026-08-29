@@ -31,12 +31,12 @@ type Metrics struct {
 }
 
 type Event struct {
-	At           time.Time `json:"at"`
-	Provider     string    `json:"provider,omitempty"`
+	At                time.Time `json:"at"`
+	Provider          string    `json:"provider,omitempty"`
 	Model             string    `json:"model,omitempty"`
 	Failed            bool      `json:"failed"`
 	InputTokens       int64     `json:"input_tokens"`
-	CachedInputTokens int64 `json:"cached_input_tokens,omitempty"`
+	CachedInputTokens int64     `json:"cached_input_tokens,omitempty"`
 	OutputTokens      int64     `json:"output_tokens"`
 	TotalTokens       int64     `json:"total_tokens"`
 	LatencyMS         int64     `json:"latency_ms"`
