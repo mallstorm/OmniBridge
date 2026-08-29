@@ -1076,6 +1076,7 @@ func TestRouter3VirtualModelsAndDiagnostics(t *testing.T) {
 	am := accounts.NewManager(dir, sec)
 	reg := registry.New(filepath.Join(dir, "models.json"), cfg, pm, am)
 	reg.RefreshAll(context.Background())
+	reg.UpdateProbe("p/m", providers.ProbeResult{ModelID: "p/m", Basic: true, DoctorStatus: "chat_only"})
 	st := stats.New(filepath.Join(dir, "stats.json"))
 	srv := New(cfg, sec, pm, am, reg, st, log.New(io.Discard, "", 0))
 	ts := httptest.NewServer(srv.Handler())
@@ -1406,9 +1407,19 @@ func TestVSCodeExportFiltersYandexNonChatModels(t *testing.T) {
 	if !strings.Contains(text, `"yandex-test/gpt://b1g-folder/deepseek-v4-flash/latest"`) {
 		t.Fatalf("deepseek expected in export: %s", text)
 	}
-	for _, forbidden := range []string{"speech-realtime-deepseek", "tts-x"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("non-chat model %s unexpectedly exported: %s", forbidden, text)
+	var exported struct {
+		Models []struct {
+			ID string `json:"id"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &exported); err != nil {
+		t.Fatalf("decode VS Code export: %v", err)
+	}
+	for _, model := range exported.Models {
+		for _, forbidden := range []string{"speech-realtime-deepseek", "tts-x"} {
+			if strings.Contains(model.ID, forbidden) {
+				t.Fatalf("non-chat model %s unexpectedly exported: %s", forbidden, text)
+			}
 		}
 	}
 }

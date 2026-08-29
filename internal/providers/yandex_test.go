@@ -141,7 +141,7 @@ func TestYandexListModelsFriendlyNamesAndURIs(t *testing.T) {
 		t.Fatalf("yandexgpt context/metadata wrong: %+v", gpt)
 	}
 	deep := byNative["gpt://b1g-folder/deepseek-v4-flash/latest"]
-	if deep.Name != "DeepSeek V4 Flash" || !deep.Reasoning || deep.ContextWindow != 1048576 {
+	if deep.Name != "DeepSeek V4 Flash" || deep.Reasoning || deep.ContextWindow != 1048576 {
 		t.Fatalf("deepseek model metadata wrong: %+v", deep)
 	}
 	for _, m := range models {
