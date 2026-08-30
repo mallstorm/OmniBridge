@@ -83,7 +83,7 @@ try{
         );
         relationships=@(
             [ordered]@{spdxElementId='SPDXRef-DOCUMENT';relationshipType='DESCRIBES';relatedSpdxElement='SPDXRef-Package-OmniBridge'},
-            [ordered]@{spdxElementId='SPDXRef-Package-OmniBridge';relationshipType='BUILD_TOOL_OF';relatedSpdxElement='SPDXRef-Package-Go'}
+            [ordered]@{spdxElementId='SPDXRef-Package-Go';relationshipType='BUILD_TOOL_OF';relatedSpdxElement='SPDXRef-Package-OmniBridge'}
         )
     }
     $sbom|ConvertTo-Json -Depth 8|Set-Content -Encoding UTF8 -LiteralPath (Join-Path $package 'SBOM.spdx.json')
