@@ -86,8 +86,14 @@ func (s *Server) teamCandidates(req obr.Requirements) ([]orchestration.Candidate
 	out := make([]orchestration.Candidate, 0, len(models))
 	sources := make(map[string]string, len(models))
 	for _, m := range models {
-		profile, source := s.teamProfile(m)
 		rc := s.toRouterCandidate(m, config.RoutingPolicy{})
+		profile, source := s.teamProfile(m)
+		if source == "inferred" && !rc.QuotaKnown {
+			// A synthetic reserve is meaningless when the provider exposes no
+			// usable quota telemetry. Explicit operator profiles keep their reserve
+			// and therefore remain the mechanism for strict quota protection.
+			profile.MinimumQuotaReserve = 0
+		}
 		score := obr.ScoreCandidateForRequest(rc, "smart", req)
 		out = append(out, orchestration.Candidate{
 			ModelID:          m.ID,
@@ -209,6 +215,21 @@ func applyTeamTaskType(task orchestration.Task, taskType string) (orchestration.
 	return task, nil
 }
 
+func teamRiskRank(v string) int {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "low":
+		return 1
+	case "medium":
+		return 2
+	case "high":
+		return 3
+	case "critical":
+		return 4
+	default:
+		return 0
+	}
+}
+
 func (s *Server) teamRoutingEvaluate(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 32<<20))
 	if err != nil {
@@ -253,9 +274,9 @@ func (s *Server) teamRoutingEvaluate(w http.ResponseWriter, r *http.Request) {
 				jsonErr(w, http.StatusBadRequest, "risk must be low, medium, high, or critical")
 				return
 			}
-			// Explicit risk may raise conservatism but cannot downgrade a critical
-			// security task or a tool/agent task below the safety floor.
-			if task.Type != "security_review" {
+			// Explicit risk is monotonic: an operator may raise conservatism but
+			// cannot downgrade what the classifier/task policy already established.
+			if teamRiskRank(risk) > teamRiskRank(task.Risk) {
 				task.Risk = risk
 			}
 		}
