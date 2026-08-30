@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -49,8 +50,41 @@ type Service struct {
 	snapshot Snapshot
 }
 
+func validateCatalogURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" {
+		return nil, errors.New("catalog URL must be an absolute HTTPS URL")
+	}
+	if u.User != nil {
+		return nil, errors.New("catalog URL must not contain userinfo")
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") || !strings.Contains(host, ".") {
+		return nil, errors.New("catalog URL must use a public hostname")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return nil, errors.New("catalog URL must not target a local or private address")
+		}
+	}
+	return u, nil
+}
+
+func catalogHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("catalog redirect limit exceeded")
+			}
+			_, err := validateCatalogURL(req.URL.String())
+			return err
+		},
+	}
+}
+
 func New(db *storage.DB, cfg config.CatalogSyncConfig) *Service {
-	return &Service{cfg: cfg, db: db, client: &http.Client{Timeout: 20 * time.Second}, snapshot: Snapshot{Version: Version, SourceURL: cfg.URL, Entries: []Entry{}, ReferenceOnly: true}}
+	return &Service{cfg: cfg, db: db, client: catalogHTTPClient(), snapshot: Snapshot{Version: Version, SourceURL: cfg.URL, Entries: []Entry{}, ReferenceOnly: true}}
 }
 func (s *Service) UpdateConfig(c config.CatalogSyncConfig) {
 	s.mu.Lock()
@@ -117,9 +151,9 @@ func (s *Service) Sync(ctx context.Context) (Snapshot, error) {
 	if !cfg.Enabled {
 		return s.Snapshot(), errors.New("catalog sync is disabled")
 	}
-	u, err := url.Parse(strings.TrimSpace(cfg.URL))
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return s.Snapshot(), errors.New("catalog URL must be an absolute HTTPS URL")
+	u, err := validateCatalogURL(cfg.URL)
+	if err != nil {
+		return s.Snapshot(), err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
