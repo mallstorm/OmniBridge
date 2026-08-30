@@ -45,6 +45,12 @@ jobs:
       - name: Validate XAML and PowerShell
         shell: pwsh
         run: ./scripts/validate-ui.ps1 -Root $PWD
+      - name: Windows PowerShell 5.1 acceptance
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion
+          ./scripts/validate-ui.ps1 -Root $PWD
+          go test ./internal/secretstore -run DPAPI -count=1 -v
       - name: Build Windows x64
         shell: pwsh
         run: ./scripts/build-release.ps1 -Root $PWD
