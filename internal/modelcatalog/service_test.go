@@ -9,3 +9,22 @@ func TestParseModelsDevReferenceMetadata(t *testing.T) {
 		t.Fatalf("entries=%+v", got)
 	}
 }
+
+func TestCatalogURLRejectsLocalAndUnsafeTargets(t *testing.T) {
+	if _, err := validateCatalogURL("https://models.dev/api.json"); err != nil {
+		t.Fatalf("public HTTPS catalog rejected: %v", err)
+	}
+	for _, raw := range []string{
+		"http://models.dev/api.json",
+		"https://localhost/api.json",
+		"https://127.0.0.1/api.json",
+		"https://10.0.0.1/api.json",
+		"https://169.254.169.254/latest/meta-data",
+		"https://metadata/api.json",
+		"https://user:pass@models.dev/api.json",
+	} {
+		if _, err := validateCatalogURL(raw); err == nil {
+			t.Fatalf("unsafe catalog URL accepted: %s", raw)
+		}
+	}
+}
