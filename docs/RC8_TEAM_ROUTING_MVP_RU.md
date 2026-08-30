@@ -280,7 +280,7 @@ Content-Type: application/json
 }
 ```
 
-Без `X-OmniBridge-Team-Execute: true` Team extension **не читает body и не перехватывает обычный RC8 data-plane**.
+Без `X-OmniBridge-Team-Execute: true` Team extension **не читает body и не перехватывает обычный RC8 data-plane**. В этом случае `team/*` ещё не является прозрачной моделью основного Router и обычный proxy вправе вернуть стандартную ошибку неизвестного route/model. Это намеренный preview-contract, а не скрытый fallback.
 
 ## Execution pipeline
 
