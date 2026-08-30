@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 type DB struct {
 	mu   sync.Mutex
@@ -211,6 +211,24 @@ func (d *DB) PutDocument(name string, payload []byte) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	return d.Transaction(fmt.Sprintf(`INSERT INTO legacy_documents(name,payload,updated_at) VALUES(%s,%s,%s)
 ON CONFLICT(name) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at;`, quoteText(name), quoteText(string(payload)), quoteText(now)))
+}
+
+func (d *DB) SaveRoutingQuality(provider, connection, model string, at time.Time, payload any) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return d.Exec(fmt.Sprintf(`INSERT INTO routing_quality(provider_id,connection_id,model_id,updated_at,payload) VALUES(%s,%s,%s,%s,%s)
+ON CONFLICT(provider_id,connection_id,model_id) DO UPDATE SET updated_at=excluded.updated_at,payload=excluded.payload;`, quoteText(provider), quoteText(connection), quoteText(model), quoteTime(at), quoteText(string(b))))
+}
+
+func (d *DB) SaveRouteDecision(traceID string, at time.Time, payload any) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return d.Exec(fmt.Sprintf(`INSERT INTO route_decisions(trace_id,at,payload) VALUES(%s,%s,%s)
+ON CONFLICT(trace_id) DO UPDATE SET at=excluded.at,payload=excluded.payload;`, quoteText(traceID), quoteTime(at), quoteText(string(b))))
 }
 
 func (d *DB) GetDocument(name string) ([]byte, bool, error) {

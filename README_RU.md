@@ -1,4 +1,10 @@
-# OmniBridge 1.0.0-rc7 — Universal AI Gateway
+# OmniBridge 1.0.0-rc8 — Adaptive Intelligence Gateway
+
+## 1.0.0-rc8 — Adaptive Intelligence
+
+RC8 сохраняет строгую проверку физической модели из RC7 и добавляет эксплуатационную обратную связь: EWMA success/latency, постепенный confidence, `Route Decision Trace`, объяснение выбора по Trace ID, безопасный Health Autopilot, GigaChat OAuth singleflight, quota-share, Exact Response Cache и дедупликацию детерминированных запросов.
+
+Context Guard переименован в Context Optimizer и по умолчанию работает в режиме `safe`: он не изменяет исходный код, diff, JSON/YAML, compiler errors, system/developer instructions, tool schemas и tool-call JSON. models.dev используется только как справочный источник и никогда не выставляет `ChatVerified`, `IdentityVerified`, `ToolCalling` или `AgentReady`. Provider packs являются подписываемыми data-only manifests и не исполняют внешний код. Полное описание: `docs/RC8_ADAPTIVE_INTELLIGENCE_RU.md`.
 
 ## 1.0.0-rc7 — Verified Models, Identity и управляемые пулы
 

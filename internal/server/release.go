@@ -30,7 +30,7 @@ func (s *Server) releaseReport() map[string]any {
 		add("sqlite_quick_check", false, err.Error())
 	} else {
 		add("sqlite_quick_check", q == "ok", q)
-		add("sqlite_schema", storage.CurrentSchemaVersion == 3, "schema=3")
+		add("sqlite_schema", storage.CurrentSchemaVersion == 4, "schema=4")
 	}
 
 	cfg := s.Config.Get()

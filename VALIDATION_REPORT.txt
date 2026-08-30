@@ -1,49 +1,87 @@
-OmniBridge 1.0.0-rc6 — VALIDATION REPORT
+OmniBridge 1.0.0-rc8 — VALIDATION REPORT
 =========================================
-Audit date: 2026-08-29
-Scope: full source archive, RC6 Yandex/VS Code changes, release consistency, GitHub baseline
+Audit date: 2026-08-30
+Scope: RC8 Adaptive Intelligence, RC7 identity preservation, security hardening, Windows acceptance and release build
 
-ARCHIVE
-[PASS] ZIP integrity/CRC: 386 entries
-[PASS] path traversal scan: 0 unsafe paths
-[PASS] symlink scan: 0 symlinks
-[PASS] source tree extracted completely
+BASELINE
+[PASS] Base branch: main @ 436eec3ade8b705b0687c0698efd230b9a25e473 (RC7)
+[PASS] RC8 code acceptance head: cd8dd3dc6d24c4259e291c963cf3a92d56462ae3
+[PASS] Pull request: #4, mergeable, RC7 identity/Doctor gates preserved
+[PASS] Version: 1.0.0-rc8
+[PASS] Config schema: 6
+[PASS] SQLite schema: 4
+[PASS] Windows assembly manifest: 1.0.0.8
 
-VERSION / RELEASE
-[PASS] Core/VERSION.txt/RELEASE.json: 1.0.0-rc6
-[PASS] static XAML fallback version: 1.0.0-rc6
-[PASS] Windows assembly manifest version: 1.0.0.6
-[PASS] automated release-version consistency test added
-[PASS] stale root SHA256SUMS regenerated after audit
-
-GO / STORAGE / SECURITY
-[PASS] gofmt: clean
-[PASS] go test ./... with SQLite
-[PASS] go test -race ./... with SQLite
+WINDOWS CI ACCEPTANCE — RUN #160
+[PASS] Runner: Microsoft Windows Server 2025
+[PASS] Go toolchain: go1.27.0 windows/amd64
+[PASS] fail-closed gofmt gate
+[PASS] Windows resources regenerated
+[PASS] go test ./... including SQLite and RC8 regression tests
+[PASS] go test -race ./...
 [PASS] go vet ./...
-[PASS] GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
-[PASS] Windows x64 cross-build: OmniBridge.exe + OmniBridgeSetup.exe
-[PASS] Windows SQLite REAL conversion fixed and Windows regression test added
-[PASS] local API key comparison uses constant-time digest comparison
+[PASS] govulncheck v1.7.0: No vulnerabilities found
+[PASS] PowerShell 7 UI validation: PowerShell syntax + 12 XAML views
+[PASS] Windows PowerShell 5.1.26100.33296 UI validation: PowerShell syntax + 12 XAML views
+[PASS] DPAPI CryptProtectData/CryptUnprotectData round-trip
+[PASS] DPAPI invalid-ciphertext rejection
+[PASS] Windows x64 release build
+[PASS] dist/OmniBridge_1.0.0-rc8_Windows_x64.zip created by build-release.ps1
+[WARN] GitHub artifact upload is still blocked by Actions storage quota; the upload step is best-effort and no downloadable artifact was retained for run #160
 
-PROVIDER / UI STATIC VALIDATION
-[PASS] provider catalog JSON: 92 unique definitions
-[PASS] support levels classified: 5 native, 18 preset, 4 local, 14 local-template, 47 template, 3 reserved, 1 custom
-[PASS] XAML XML parse: 14/14
-[PASS] named Button handlers: 65/65
-[PASS] workflow YAML parse
-[PASS] secret-like filename/pattern scan
+RC8 ADAPTIVE / ROUTING
+[PASS] Discovery, ChatVerified, AgentReady and IdentityVerified remain separate states
+[PASS] auto routes remain Doctor/ChatVerified gated
+[PASS] adaptive quality is a soft score only; auth/quota/breaker/capability/context/Doctor remain hard gates
+[PASS] EWMA success/latency/TTFT and confidence regression tests
+[PASS] Route Decision Trace / explain API does not store prompt/response/credential payloads
+[PASS] Health Autopilot uses evidence + preconditions_hash and rejects stale actions
+[PASS] GigaChat OAuth singleflight and bounded 401 retry tests
+[PASS] quota reset/burn-rate/predicted-exhaustion and quota_share support
 
-GITHUB
-[PASS] authenticated repository identified: mallstorm/OmniBridge
-[PASS] repository baseline is 1.0.0-rc5 and therefore older than this source
-[PASS] newer artifact-retention CI commits identified and preserved during RC6 overlay
-[PASS] GitHub Actions Windows: formatting, resource regeneration, Go tests, vet, UI validation and release ZIP build
-[WARN] GitHub artifact upload quota exhausted; upload is best-effort until GitHub recalculates storage
+EXACT CACHE / DEDUP
+[PASS] cache is opt-in and requires explicit temperature=0
+[PASS] missing/null/non-zero temperature is not cacheable
+[PASS] streaming and tool requests are not cacheable
+[PASS] physical provider/model/identity and namespace participate in the cache signature
+[PASS] cache Snapshot config access is race-safe
+[PASS] true LRU touch/eviction behavior covered by regression test
+[PASS] expired dedup completion results are pruned
+[PASS] cache clear removes retained cache and completed-dedup entries
 
-REMAINING ACCEPTANCE
-[PENDING] run scripts/validate-ui.ps1 under Windows PowerShell 5.1
-[PENDING] live WPF/Tray and DPAPI round-trip smoke test
-[PENDING] live credentials: Yandex models/chat/responses/tools/cache acceptance
+CONTEXT OPTIMIZER
+[PASS] safe mode preserves system/developer instructions
+[PASS] safe mode preserves code/diff/structured-data markers and tool schemas
+[PASS] OpenAI tool_calls/tool results and typed tool-use/tool-result blocks are structurally protected
+[PASS] safe compaction removes only proven duplicate plain-text history outside the recent window
+[PASS] safe compaction does not inject synthetic system/developer prompt messages
+[PASS] observe mode never changes the request
 
-See docs/AUDIT_2026-08-29_RU.md for findings, comparison and roadmap.
+MODEL CATALOG / EXTENSIBILITY
+[PASS] models.dev metadata remains reference-only / declared and cannot set verification flags
+[PASS] catalog sync requires public absolute HTTPS URL
+[PASS] localhost/private/link-local/metadata-style literal targets and URL userinfo are rejected
+[PASS] redirects are revalidated and bounded
+[PASS] last-known-good catalog snapshot is persisted in SQLite and restored after process restart
+[PASS] provider packs are Ed25519-verified data-only manifests and cannot execute code
+
+RELEASE ENGINEERING
+[PASS] release package emits build-time RELEASE.json with source commit and exact Go toolchain
+[PASS] TOOLCHAIN_PROVENANCE.txt is generated
+[PASS] SPDX 2.3 SBOM.spdx.json is generated and parsed during the build
+[PASS] go.mod has no external Go module dependencies
+[PASS] release secret-like file scan remains fail-closed
+[PASS] SHA256SUMS.txt is regenerated for packaged files
+[PASS] feature branches are validated through pull requests; main is validated on push
+[PASS] CI formatting and vulnerability checks are fail-closed
+[PASS] obsolete validation runs are configured for cancellation per branch
+
+REMAINING BEFORE STABLE 1.0.0
+[PENDING] interactive Desktop/Tray user-session smoke test on a real Windows desktop
+[PENDING] live credential acceptance for critical providers (Yandex/GigaChat/OpenAI/Anthropic/Gemini as available): models/chat/responses/stream/tools/identity/cache/fallback
+[PENDING] signed updater trust chain (Ed25519 release signature) and preferably Authenticode for EXE
+[PENDING] monotonic version / anti-downgrade gate with explicit rollback override
+[PENDING] provider conformance suite across every native/preset provider support level
+[PENDING] GitHub Actions artifact quota recovery and confirmation of a retained RC8 artifact
+
+Automated RC8 acceptance is green. The remaining items are live-environment/provider acceptance or stable-1.0 release-security gates, not known RC8 compile/test failures.

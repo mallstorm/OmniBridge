@@ -382,7 +382,7 @@ function Refresh-Services {
         $SvcQuotaState.Text=if($known.Count){'Подтверждённые лимиты доступны'}else{'Нет подтверждённых лимитов'};$SvcQuotaBadge.Text=if($qc.version){[string]$qc.version}else{'1.0'}
     }catch{$SvcQuotaState.Text='Quota & Cost недоступен';$SvcQuotaKnown.Text='—';$SvcPricingKnown.Text='—'}
     try{
-        $cg=Invoke-Admin GET '/bridge/context-guard';$cc=$cg.config;$enabled=[bool]$cc.enabled;$mode=if($cc.mode){[string]$cc.mode}else{'compact'}
+        $cg=Invoke-Admin GET '/bridge/context-guard';$cc=$cg.config;$enabled=[bool]$cc.enabled;$mode=if($cc.mode){[string]$cc.mode}else{'safe'}
         $SvcContextState.Text=if($enabled){((Get-Culture).TextInfo.ToTitleCase($mode))+' · включён'}else{'Выключен'};$SvcContextBadge.Text=if($cg.version){[string]$cg.version}else{'1.0'}
         $events=0;$saved=0;if($cg.stats){$events=[int64]$cg.stats.events;$saved=[int64]$cg.stats.saved_tokens};$SvcContextEvents.Text=[string]$events;$SvcContextSaved.Text=(Format-TrayNumber $saved)
         $pct=if($null-ne$cc.max_context_percent){[double]$cc.max_context_percent}else{90};$SvcContextPercent.Text=('{0:0.#}%'-f$pct);$BtnContextToggle.Content=if($enabled){'Отключить Guard'}else{'Включить Guard'}
@@ -470,7 +470,7 @@ function Router-ScoreDetail($Score){
     if($null-eq$Score-or$null-eq$Score.components){return 'runtime telemetry'}
     $c=$Score.components
     $parts=@()
-    foreach($spec in @(@('Doctor','doctor'),@('Agent','agent_score'),@('Coding','coding_score'),@('Health','health'),@('Latency','latency'))){
+    foreach($spec in @(@('Adaptive','adaptive_quality'),@('Doctor','doctor'),@('Agent','agent_score'),@('Coding','coding_score'),@('Health','health'),@('Latency','latency'))){
         $p=$c.psobject.Properties[$spec[1]]
         if($p -and [math]::Abs([double]$p.Value)-gt0.01){$parts+=('{0} {1:N0}' -f $spec[0],[double]$p.Value)}
     }
@@ -551,6 +551,18 @@ function Invoke-RouterDryRun {
         $RouterDecision.Text=if($preview.Count){'Маршрут: '+($preview-join' → ')}else{'Маршрут: —'}
     }catch{$RouterTestState.Text='Dry-run завершился ошибкой';$RouterTestState.Foreground=Brush '#FF8290';$RouterDecision.Text=$_.Exception.Message}
 }
+function Show-LastRouteExplanation {
+    try{
+        $items=@(ConvertTo-FlatArray (Invoke-Admin GET '/bridge/router/explain' $null 15))
+        if(-not$items.Count){Show-Toast 'В этой сессии ещё нет завершённых маршрутов.' 'info';return}
+        $d=$items[0];$selected=if($d.selected_model){[string]$d.selected_model}else{'—'};$fallback=if([bool]$d.fallback){' · fallback'}else{''}
+        $RouterDecision.Text=('Почему выбрана: {0} · {1} попыток{2} · Trace {3}' -f$selected,[int]$d.attempts,$fallback,[string]$d.trace_id)
+        Show-Toast ('Фактическая модель: '+$selected) 'ok'
+    }catch{Show-Toast $_.Exception.Message 'error'}
+}
+function Show-HealthAutopilot {
+    try{$a=Invoke-Admin GET '/bridge/health/autopilot' $null 15;$items=@(ConvertTo-FlatArray $a.actions);if($items.Count){Show-Toast ('Health Autopilot: найдено действий — '+$items.Count+'. Сначала используется dry-run.') 'info'}else{Show-Toast 'Health Autopilot: проблем не найдено.' 'ok'}}catch{Show-Toast $_.Exception.Message 'error'}
+}
 
 function Refresh-Settings {try{$c=Get-Config;$SettingsListen.Text=$c.listen;$path=Join-Path $script:Root 'data';$SettingsDataPath.Text=$path;$SettingsDataPath.ToolTip=$path;$SettingsVersion.Text=$c.version;Refresh-Routes}catch{}}
 function Create-Backup {
@@ -576,7 +588,7 @@ function Refresh-All {Refresh-Dashboard;Refresh-Providers;Refresh-Accounts;Refre
 
 function Show-Page([string]$Name){
     if(-not$script:Pages.ContainsKey($Name)){$Name='dashboard'};$script:CurrentPage=$Name;$PageHost.Children.Clear();[void]$PageHost.Children.Add($script:Pages[$Name])
-    $hints=@{dashboard=@('Подсказка','Model Doctor проверяет реальные возможности моделей перед экспортом.');api=@('Автонастройка','Вставьте ключ — endpoint, модели и протокол будут определены автоматически.');accounts=@('Безопасный вход','Пароли не сохраняются; используется официальный browser/device flow.');models=@('Model Registry','Doctor Score и capability показывают фактически проверенное состояние модели.');doctor=@('Практическая проверка','Глубокий тест формирует Doctor, Agent, Coding и Reliability Score.');router=@('Doctor-Aware Router','auto/* выбирает upstream по реальным capability, health, latency и runtime telemetry.');integration=@('Интеграция','Integration Hub обнаруживает поддерживаемые клиенты и выдаёт безопасный план подключения без перезаписи чужой конфигурации.');services=@('Сервисы Core 1.0','Quota & Cost, Context Guard, MCP и Observability используют один защищённый локальный Core.');logs=@('Безопасные журналы','Секреты и полные токены не должны попадать в логи.');settings=@('Единое приложение','Сворачивание скрывает окно в трей, крестик полностью завершает OmniBridge.');about=@('OmniBridge','Один локальный endpoint для всех поддерживаемых AI.')};$HintTitle.Text=$hints[$Name][0];$HintText.Text=$hints[$Name][1]
+    $hints=@{dashboard=@('Подсказка','Model Doctor проверяет реальные возможности моделей перед экспортом.');api=@('Автонастройка','Вставьте ключ — endpoint, модели и протокол будут определены автоматически.');accounts=@('Безопасный вход','Пароли не сохраняются; используется официальный browser/device flow.');models=@('Model Registry','Doctor Score и capability показывают фактически проверенное состояние модели.');doctor=@('Практическая проверка','Глубокий тест формирует Doctor, Agent, Coding и Reliability Score.');router=@('Adaptive Router','auto/* сочетает Doctor proof с EWMA quality, latency, quota и объяснением фактического выбора.');integration=@('Интеграция','Integration Hub обнаруживает поддерживаемые клиенты и выдаёт безопасный план подключения без перезаписи чужой конфигурации.');services=@('Adaptive Intelligence','Quota Share, Context Optimizer, Exact Cache, Health Autopilot, MCP и Observability работают в одном Core.');logs=@('Безопасные журналы','Секреты и полные токены не должны попадать в логи.');settings=@('Единое приложение','Сворачивание скрывает окно в трей, крестик полностью завершает OmniBridge.');about=@('OmniBridge','Один локальный endpoint для всех поддерживаемых AI.')};$HintTitle.Text=$hints[$Name][0];$HintText.Text=$hints[$Name][1]
     switch($Name){'dashboard'{Refresh-Dashboard}'api'{if(-not$script:Catalog.Count){Refresh-Catalog};Refresh-Providers}'accounts'{Refresh-Accounts}'models'{Refresh-Models}'doctor'{Refresh-DoctorProviders;Refresh-DoctorReport}'router'{Refresh-RouterUI}'integration'{Refresh-Integration}'services'{Refresh-Services}'logs'{Refresh-Logs}'settings'{Refresh-Settings}'about'{Refresh-About}}
 }
 
@@ -824,12 +836,13 @@ $BtnAccountLogout.Add_Click({$a=Selected-Account;if($a){try{$null=Invoke-Admin P
 # Models, Doctor, Integration, Logs, Settings.
 $ModelsSearch.Add_TextChanged({$ModelsSearchPlaceholder.Visibility=if($ModelsSearch.Text){'Collapsed'}else{'Visible'};Apply-ModelFilter});$ModelsProviderFilter.Add_SelectionChanged({Apply-ModelFilter});$ModelsSourceFilter.Add_SelectionChanged({Apply-ModelFilter});$ModelsSort.Add_SelectionChanged({Apply-ModelFilter});$BtnModelsRefresh.Add_Click({Refresh-Models});$ModelsList.Add_SelectionChanged({Update-ModelDetail});$BtnProbeSelectedModel.Add_Click({Probe-SelectedModel})
 $BtnDoctorStart.Add_Click({Start-Doctor});$BtnDoctorReportRefresh.Add_Click({Refresh-DoctorReport})
-$BtnRouterRefresh.Add_Click({Refresh-RouterUI});$RouterProfile.Add_SelectionChanged({if($script:CurrentPage-eq'router'){Refresh-RouterUI}});$BtnRouterEvaluate.Add_Click({Invoke-RouterDryRun})
+$BtnRouterRefresh.Add_Click({Refresh-RouterUI});$BtnRouterExplain.Add_Click({Show-LastRouteExplanation});$RouterProfile.Add_SelectionChanged({if($script:CurrentPage-eq'router'){Refresh-RouterUI}});$BtnRouterEvaluate.Add_Click({Invoke-RouterDryRun})
 $BtnVSSync.Add_Click({try{Sync-VSCode;$VSStatus.Text='Синхронизировано · перезапустите VS Code';$VSLastSync.Text=('Последняя синхронизация: '+(Get-Date -Format 'HH:mm:ss'));Show-Toast 'Синхронизировано. Перезапустите VS Code; при первом добавлении включите 👁 в Manage Models.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
 $BtnVSOpen.Add_Click({Open-Folder (Join-Path $env:APPDATA 'Code\User')});$BtnVSRefresh.Add_Click({Refresh-Integration});$BtnIntegrationHubRefresh.Add_Click({Refresh-Integration})
 $BtnServicesRefresh.Add_Click({Refresh-Services})
+$BtnHealthAutopilot.Add_Click({Show-HealthAutopilot})
 $BtnQuotaRefresh.Add_Click({try{$null=Invoke-Admin POST '/bridge/quota-cost/refresh' @{} 90;Refresh-Services;Show-Toast 'Квоты обновлены из доступных официальных источников.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
-$BtnContextToggle.Add_Click({try{$g=Invoke-Admin GET '/bridge/context-guard';$c=$g.config;$mode=if($c.mode){[string]$c.mode}else{'compact'};if($mode-eq'off'){$mode='compact'};$body=@{enabled=(-not[bool]$c.enabled);mode=$mode;max_context_percent=[double]$c.max_context_percent;reserve_output_tokens=[int]$c.reserve_output_tokens;min_recent_messages=[int]$c.min_recent_messages;max_request_bytes=[int]$c.max_request_bytes};$null=Invoke-Admin PUT '/bridge/context-guard' $body;Refresh-Services;Show-Toast 'Context Guard обновлён.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
+$BtnContextToggle.Add_Click({try{$g=Invoke-Admin GET '/bridge/context-optimizer';$c=$g.config;$mode=if($c.mode){[string]$c.mode}else{'safe'};if($mode-eq'off'){$mode='safe'};$body=@{enabled=(-not[bool]$c.enabled);mode=$mode;max_context_percent=[double]$c.max_context_percent;reserve_output_tokens=[int]$c.reserve_output_tokens;min_recent_messages=[int]$c.min_recent_messages;max_request_bytes=[int]$c.max_request_bytes};$null=Invoke-Admin PUT '/bridge/context-optimizer' $body;Refresh-Services;Show-Toast 'Context Optimizer обновлён.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
 $BtnMCPProbeAll.Add_Click({try{$null=Invoke-Admin POST '/bridge/mcp/probe-all' @{} 30;Refresh-Services;Show-Toast 'Проверка MCP завершена.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
 $BtnOpenLogsFromServices.Add_Click({Show-Page 'logs'});$BtnOpenIntegrationFromServices.Add_Click({Show-Page 'integration'})
 $BtnLogsRefresh.Add_Click({Refresh-Logs});$BtnLogsFolder.Add_Click({Open-Folder (Join-Path $script:Root 'logs')});$LogsSearch.Add_TextChanged({$LogsSearchPlaceholder.Visibility=if($LogsSearch.Text){'Collapsed'}else{'Visible'};Apply-LogFilter});$LogsLevel.Add_SelectionChanged({Apply-LogFilter})

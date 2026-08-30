@@ -21,10 +21,13 @@ import (
 	"time"
 
 	"omnibridge/internal/accounts"
+	"omnibridge/internal/adaptive"
 	"omnibridge/internal/config"
+	"omnibridge/internal/generation"
 	"omnibridge/internal/health"
 	"omnibridge/internal/integrations"
 	"omnibridge/internal/mcpcontrol"
+	"omnibridge/internal/modelcatalog"
 	"omnibridge/internal/observability"
 	"omnibridge/internal/protocol"
 	"omnibridge/internal/providers"
@@ -62,6 +65,9 @@ type Server struct {
 	Integrations    *integrations.Hub
 	MCP             *mcpcontrol.Control
 	Observability   *observability.Recorder
+	Adaptive        *adaptive.Engine
+	Generation      *generation.Manager
+	ModelCatalog    *modelcatalog.Service
 	Root            string
 	generationSlots chan struct{}
 	probeSlots      chan struct{}
@@ -72,7 +78,7 @@ func New(cfg *config.Store, secrets *secretstore.Store, pm *providers.Manager, a
 	if len(healthStores) > 0 {
 		hs = healthStores[0]
 	}
-	return &Server{Config: cfg, Secrets: secrets, Providers: pm, Accounts: am, Registry: reg, Stats: st, Health: hs, Logger: logger, Resilience: resilience.New(resilienceConfig(cfg.Get().Routing), nil), ControlFlight: resilience.NewSingleFlight(), Router: obr.New(), startedAt: time.Now(), generationSlots: make(chan struct{}, 16), probeSlots: make(chan struct{}, 2)}
+	return &Server{Config: cfg, Secrets: secrets, Providers: pm, Accounts: am, Registry: reg, Stats: st, Health: hs, Logger: logger, Resilience: resilience.New(resilienceConfig(cfg.Get().Routing), nil), ControlFlight: resilience.NewSingleFlight(), Router: obr.New(), Generation: generation.New(cfg.Get().ExactCache), startedAt: time.Now(), generationSlots: make(chan struct{}, 16), probeSlots: make(chan struct{}, 2)}
 }
 
 func (s *Server) SetStorage(db *storage.DB) {
@@ -81,6 +87,8 @@ func (s *Server) SetStorage(db *storage.DB) {
 	s.QuotaCost = quotacost.New(db, s.Config.Get().QuotaCost)
 	s.MCP = mcpcontrol.New(db)
 	s.Observability = observability.New(db)
+	s.Adaptive = adaptive.New(db, s.Config.Get().Adaptive)
+	s.ModelCatalog = modelcatalog.New(db, s.Config.Get().CatalogSync)
 	s.Integrations = integrations.New(s.Root, db)
 }
 func (s *Server) SetRoot(root string) {
@@ -138,6 +146,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /bridge/router/health", s.withAdmin(s.routerHealth))
 	mux.HandleFunc("GET /bridge/router/diagnostics", s.withAdmin(s.routerDiagnostics))
 	mux.HandleFunc("POST /bridge/router/evaluate", s.withAdmin(s.routerEvaluate))
+	mux.HandleFunc("GET /bridge/router/quality", s.withAdmin(s.adaptiveStatus))
+	mux.HandleFunc("PUT /bridge/router/quality", s.withAdmin(s.putAdaptiveConfig))
+	mux.HandleFunc("POST /bridge/router/outcomes", s.withAdmin(s.adaptiveEvaluatorOutcome))
+	mux.HandleFunc("GET /bridge/router/explain", s.withAdmin(s.routeExplain))
 	mux.HandleFunc("GET /bridge/resilience", s.withAdmin(s.resilienceStatus))
 	mux.HandleFunc("POST /bridge/resilience/reset", s.withAdmin(s.resetResilience))
 	mux.HandleFunc("PUT /bridge/router", s.withAdmin(s.putRouter))
@@ -149,6 +161,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /bridge/context-guard", s.withAdmin(s.contextGuardStatus))
 	mux.HandleFunc("PUT /bridge/context-guard", s.withAdmin(s.putContextGuard))
 	mux.HandleFunc("POST /bridge/context-guard/preview", s.withAdmin(s.contextGuardPreview))
+	mux.HandleFunc("GET /bridge/context-optimizer", s.withAdmin(s.contextGuardStatus))
+	mux.HandleFunc("PUT /bridge/context-optimizer", s.withAdmin(s.putContextGuard))
+	mux.HandleFunc("POST /bridge/context-optimizer/preview", s.withAdmin(s.contextGuardPreview))
+	mux.HandleFunc("GET /bridge/cache", s.withAdmin(s.cacheStatus))
+	mux.HandleFunc("PUT /bridge/cache", s.withAdmin(s.putCacheConfig))
+	mux.HandleFunc("DELETE /bridge/cache", s.withAdmin(s.clearCache))
+	mux.HandleFunc("GET /bridge/health/autopilot", s.withAdmin(s.healthAutopilot))
+	mux.HandleFunc("POST /bridge/health/autopilot/actions", s.withAdmin(s.healthAutopilotAction))
 	mux.HandleFunc("GET /bridge/integrations", s.withAdmin(s.integrationHubStatus))
 	mux.HandleFunc("GET /bridge/integrations/{id}/plan", s.withAdmin(s.integrationPlan))
 	mux.HandleFunc("POST /bridge/integrations/{id}/configured", s.withAdmin(s.integrationConfigured))
@@ -165,7 +185,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /metrics", s.metricsHandler)
 	mux.HandleFunc("GET /bridge/vscode", s.withAdmin(s.bridgeVSCode))
 	mux.HandleFunc("GET /bridge/vscode/export", s.withAdmin(s.bridgeVSCodeExport))
+	mux.HandleFunc("POST /bridge/vscode/self-test", s.withAdmin(s.vscodeSelfTest))
 	mux.HandleFunc("POST /bridge/detect", s.withAdmin(s.detect))
+	mux.HandleFunc("POST /bridge/provider-packs/validate", s.withAdmin(s.validateProviderPack))
+	mux.HandleFunc("GET /bridge/catalog-sync", s.withAdmin(s.catalogSyncStatus))
+	mux.HandleFunc("PUT /bridge/catalog-sync", s.withAdmin(s.putCatalogSync))
+	mux.HandleFunc("POST /bridge/catalog-sync", s.withAdmin(s.runCatalogSync))
 	mux.HandleFunc("POST /control/shutdown", s.withAdmin(s.shutdown))
 	var h http.Handler = mux
 	h = s.recoverPanics(h)
@@ -745,7 +770,10 @@ func modelIdentityInstruction(m providers.Model) string {
 	if provider == "" {
 		provider = strings.TrimSpace(m.ProviderID)
 	}
-	return fmt.Sprintf("You are %s, served by %s through OmniBridge. GitHub Copilot Chat and VS Code are only the host interface. Do not identify yourself as GitHub Copilot, VS Code, or OmniBridge. When the user asks which model you are, state exactly that you are %s and name provider %s. Otherwise follow the user's request normally.", name, provider, name, provider)
+	if m.IdentityVerified {
+		return fmt.Sprintf("Your verified upstream identity is %s, served by %s through OmniBridge. GitHub Copilot Chat and VS Code are only the host interface. Do not identify yourself as GitHub Copilot, VS Code, or OmniBridge. When the user asks which model you are, state exactly that you are %s and name provider %s. Otherwise follow the user's request normally.", name, provider, name, provider)
+	}
+	return fmt.Sprintf("OmniBridge selected provider-reported model %s from %s, but its physical identity has not yet passed Model Doctor verification. GitHub Copilot Chat and VS Code are only the host interface. If asked which model you are, report the provider-reported name %s and explicitly say that identity is unverified. Do not identify yourself as GitHub Copilot, VS Code, or OmniBridge.", name, provider, name)
 }
 
 func injectModelIdentity(body []byte, apiType string, m providers.Model) []byte {
@@ -832,7 +860,7 @@ func setSelectedModelHeaders(h http.Header, requested string, m providers.Model,
 	h.Set("X-OmniBridge-Native-Model", safeResponseHeaderValue(m.NativeID))
 	h.Set("X-OmniBridge-Route", safeResponseHeaderValue(requested))
 	h.Set("X-OmniBridge-Fallback-Used", strconv.FormatBool(fallback))
-	h.Set("Access-Control-Expose-Headers", "X-OmniBridge-Selected-Model, X-OmniBridge-Provider, X-OmniBridge-Native-Model, X-OmniBridge-Route, X-OmniBridge-Fallback-Used")
+	h.Set("Access-Control-Expose-Headers", "X-OmniBridge-Selected-Model, X-OmniBridge-Provider, X-OmniBridge-Native-Model, X-OmniBridge-Route, X-OmniBridge-Fallback-Used, X-OmniBridge-Trace-ID, X-OmniBridge-Attempts, X-OmniBridge-Latency-Ms, X-OmniBridge-TTFT-Ms, X-OmniBridge-Cost-USD, X-OmniBridge-Cache-Hit, X-OmniBridge-Dedup-Hit, X-OmniBridge-Context-Mode")
 }
 
 func retryableStatus(status int) bool {
@@ -1041,6 +1069,76 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 		jsonOut(w, status, map[string]any{"error": map[string]any{"message": err.Error(), "type": code, "code": code}, "requirements": req})
 		return
 	}
+	cacheSignature := ""
+	dedupLeader := false
+	dedupFinished := false
+	if s.Generation != nil && len(candidates) > 0 && !strings.EqualFold(strings.TrimSpace(r.Header.Get("X-OmniBridge-Cache-Bypass")), "true") && generation.Cacheable(body) {
+		s.Generation.UpdateConfig(s.Config.Get().ExactCache)
+		first := candidates[0]
+		namespace := strings.TrimSpace(r.Header.Get("X-OmniBridge-Cache-Namespace"))
+		if namespace == "" {
+			namespace = bridgeKeyFingerprint(s.Config.Get().DataAPIKey)
+		}
+		namespace = generation.Namespace(namespace)
+		identityVersion := generation.IdentityVersion(first.ID, first.UpstreamModelID, first.DoctorCheckedAt)
+		cacheSignature = generation.Signature(namespace, first.ProviderID, first.ID, first.NativeID, identityVersion, body)
+		if s.Config.Get().ExactCache.Enabled {
+			if cached, hit := s.Generation.Get(cacheSignature); hit {
+				setSelectedModelHeaders(w.Header(), meta.Model, first, false)
+				w.Header().Set("X-OmniBridge-Cache-Hit", "true")
+				w.Header().Set("X-OmniBridge-Dedup-Hit", "false")
+				w.Header().Set("Content-Type", cached.ContentType)
+				annotateTrace(r.Context(), func(tr *observability.Trace) {
+					tr.SelectedModel = first.ID
+					tr.Provider = first.ProviderID
+					tr.Attributes["cache_hit"] = true
+				})
+				if s.Adaptive != nil {
+					if tr := observability.FromContext(r.Context()); tr != nil {
+						s.Adaptive.RecordDecision(adaptive.Decision{TraceID: tr.ID, At: start.UTC(), Route: meta.Model, RequestedModel: meta.Model, SelectedModel: first.ID, ProviderID: first.ProviderID, NativeModelID: first.NativeID, Attempts: 0, CacheHit: true, ContextMode: contextReport.Mode, Candidates: []adaptive.CandidateDecision{{ModelID: first.ID, ProviderID: first.ProviderID, NativeModelID: first.NativeID, Status: "cache_hit"}}})
+					}
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(cached.Body)
+				return
+			}
+		}
+		wait, leader := s.Generation.Join(cacheSignature)
+		dedupLeader = leader
+		if !leader {
+			select {
+			case <-wait:
+				if cached, ok := s.Generation.WaitResult(cacheSignature); ok {
+					setSelectedModelHeaders(w.Header(), meta.Model, first, false)
+					w.Header().Set("X-OmniBridge-Cache-Hit", "false")
+					w.Header().Set("X-OmniBridge-Dedup-Hit", "true")
+					w.Header().Set("Content-Type", cached.ContentType)
+					annotateTrace(r.Context(), func(tr *observability.Trace) {
+						tr.SelectedModel = first.ID
+						tr.Provider = first.ProviderID
+						tr.Attributes["dedup_hit"] = true
+					})
+					if s.Adaptive != nil {
+						if tr := observability.FromContext(r.Context()); tr != nil {
+							s.Adaptive.RecordDecision(adaptive.Decision{TraceID: tr.ID, At: start.UTC(), Route: meta.Model, RequestedModel: meta.Model, SelectedModel: first.ID, ProviderID: first.ProviderID, NativeModelID: first.NativeID, Attempts: 0, DedupHit: true, ContextMode: contextReport.Mode, Candidates: []adaptive.CandidateDecision{{ModelID: first.ID, ProviderID: first.ProviderID, NativeModelID: first.NativeID, Status: "dedup_hit"}}})
+						}
+					}
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write(cached.Body)
+					return
+				}
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}
+	if dedupLeader {
+		defer func() {
+			if !dedupFinished {
+				s.Generation.Complete(cacheSignature, generation.Entry{}, false)
+			}
+		}()
+	}
 	routing := s.Config.Get().Routing
 	maxAttempts := routing.MaxRetries + 1
 	if maxAttempts < 1 {
@@ -1059,11 +1157,55 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 	var lastClass resilience.Classification
 	attempted := false
 	attempts := 0
+	decision := adaptive.Decision{At: start.UTC(), Route: meta.Model, RequestedModel: meta.Model, Strategy: "priority", ContextMode: contextReport.Mode}
+	if p, ok := routing.Policies[meta.Model]; ok {
+		decision.Strategy = p.Mode
+	} else if isAutoVirtualModel(meta.Model) {
+		p, _ := autoPolicy(meta.Model)
+		decision.Strategy = p.Mode
+	}
+	if tr := observability.FromContext(r.Context()); tr != nil {
+		decision.TraceID = tr.ID
+	}
+	scoreByID := map[string]obr.Score{}
+	for _, sc := range s.routingScoresForRequest(meta.Model, req) {
+		scoreByID[sc.CandidateID] = sc
+	}
+	for _, candidate := range candidates {
+		cd := adaptive.CandidateDecision{ModelID: candidate.ID, ProviderID: candidate.ProviderID, NativeModelID: candidate.NativeID, Status: "not_reached"}
+		if sc, ok := scoreByID[candidate.ID]; ok {
+			cd.Score = sc.Total
+			cd.Components = sc.Components
+		}
+		decision.Candidates = append(decision.Candidates, cd)
+	}
+	setDecisionStatus := func(id, status string, reasons ...string) {
+		for i := range decision.Candidates {
+			if decision.Candidates[i].ModelID == id {
+				decision.Candidates[i].Status = status
+				decision.Candidates[i].Reasons = append([]string(nil), reasons...)
+				return
+			}
+		}
+	}
+	defer func() {
+		if s.Adaptive != nil {
+			decision.SelectedModel = m.ID
+			decision.ProviderID = m.ProviderID
+			decision.NativeModelID = m.NativeID
+			decision.Attempts = attempts
+			decision.Fallback = attempts > 1 || (len(candidates) > 0 && m.ID != "" && m.ID != candidates[0].ID)
+			decision.LatencyMS = time.Since(start).Milliseconds()
+			s.Adaptive.RecordDecision(decision)
+		}
+	}()
 	for attempt, candidate := range attemptModels {
 		if !s.acquireModelResilience(candidate) {
+			setDecisionStatus(candidate.ID, "skipped", "circuit_or_cooldown")
 			s.Logger.Printf("[resilience] skip blocked model=%s connection=%s", candidate.ID, resilienceConnectionKey(candidate))
 			continue
 		}
+		attemptStarted := time.Now()
 		attempted = true
 		attempts = attempt + 1
 		m = candidate
@@ -1079,13 +1221,18 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 		annotateTrace(r.Context(), func(tr *observability.Trace) { tr.CrossProtocol = call.CrossProtocol })
 		errorBody := captureUpstreamErrorBody(&call)
 		lastClass = resilience.Classify(call.Status, errorBody, call.Header, err, r.Context().Err())
+		if s.Adaptive != nil {
+			s.Adaptive.Observe(adaptive.Outcome{TraceID: decision.TraceID, Route: meta.Model, ProviderID: candidate.ProviderID, ConnectionID: candidate.ProviderID, ModelID: candidate.ID, NativeModelID: candidate.NativeID, Success: err == nil && call.Status/100 == 2, RateLimited: call.Status == http.StatusTooManyRequests, Anomaly: err != nil || call.Status >= 500, LatencyMS: time.Since(attemptStarted).Milliseconds(), At: time.Now().UTC()})
+		}
 		if lastClass.Kind != "" {
+			setDecisionStatus(candidate.ID, "failed", string(lastClass.Kind))
 			s.recordResilienceFailure(m, lastClass)
 			if fallbackEligible(lastClass) && s.Router != nil && sessionKey != "" {
 				s.Router.Release(meta.Model, sessionKey, m.ID)
 			}
 		}
 		if err == nil && call.Status/100 == 2 {
+			setDecisionStatus(candidate.ID, "dispatched")
 			s.recordResilienceSuccess(m)
 			if s.Router != nil && sessionKey != "" && routing.SessionStickiness {
 				ttl := time.Duration(routing.SessionTTLSeconds) * time.Second
@@ -1134,6 +1281,12 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 	defer call.Body.Close()
 	fallbackUsed := attempts > 1 || (len(candidates) > 0 && m.ID != candidates[0].ID)
 	setSelectedModelHeaders(w.Header(), meta.Model, m, fallbackUsed)
+	w.Header().Set("X-OmniBridge-Attempts", strconv.Itoa(attempts))
+	w.Header().Set("X-OmniBridge-Latency-Ms", strconv.FormatInt(time.Since(start).Milliseconds(), 10))
+	w.Header().Set("X-OmniBridge-TTFT-Ms", "0")
+	w.Header().Set("X-OmniBridge-Cache-Hit", "false")
+	w.Header().Set("X-OmniBridge-Dedup-Hit", "false")
+	w.Header().Set("X-OmniBridge-Context-Mode", safeResponseHeaderValue(contextReport.Mode))
 	s.Logger.Printf("[router] route=%s selected=%s provider=%s native=%s attempts=%d fallback=%t", meta.Model, m.ID, m.ProviderID, m.NativeID, attempts, fallbackUsed)
 	if call.Status/100 != 2 {
 		s.recordUsageCost(r.Context(), m, true, 0, 0, 0, time.Since(start).Milliseconds())
@@ -1154,6 +1307,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 	if call.CrossProtocol {
 		isSSE := strings.Contains(strings.ToLower(call.Header.Get("Content-Type")), "text/event-stream")
 		if call.RequestedStream && isSSE {
+			if dedupLeader {
+				s.Generation.Complete(cacheSignature, generation.Entry{}, false)
+				dedupFinished = true
+			}
 			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
@@ -1213,6 +1370,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 		in, out, total, cached := extractUsageDetailed(translated)
 		s.recordUsageCostCached(r.Context(), m, false, in, out, total, cached, time.Since(start).Milliseconds())
 		if call.RequestedStream {
+			if dedupLeader {
+				s.Generation.Complete(cacheSignature, generation.Entry{}, false)
+				dedupFinished = true
+			}
 			sse, sseErr := protocol.SyntheticSSE(apiType, translated)
 			if sseErr != nil {
 				jsonErr(w, 502, "stream translation failed: "+sseErr.Error())
@@ -1228,6 +1389,16 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if cacheSignature != "" && len(candidates) > 0 && m.ID == candidates[0].ID {
+			e := generation.Entry{Signature: cacheSignature, NamespaceHash: generation.Namespace(strings.TrimSpace(r.Header.Get("X-OmniBridge-Cache-Namespace"))), ProviderID: m.ProviderID, ModelID: m.ID, NativeModelID: m.NativeID, IdentityVersion: generation.IdentityVersion(m.ID, m.UpstreamModelID, m.DoctorCheckedAt), ContentType: "application/json; charset=utf-8", Body: translated}
+			if s.Config.Get().ExactCache.Enabled {
+				_ = s.Generation.Put(e)
+			}
+			if dedupLeader {
+				s.Generation.Complete(cacheSignature, e, true)
+				dedupFinished = true
+			}
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(translated)
 		return
@@ -1236,6 +1407,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 	copyHeaders(w.Header(), call.Header)
 	w.WriteHeader(call.Status)
 	if strings.Contains(strings.ToLower(call.Header.Get("Content-Type")), "text/event-stream") {
+		if dedupLeader {
+			s.Generation.Complete(cacheSignature, generation.Entry{}, false)
+			dedupFinished = true
+		}
 		flusher, _ := w.(http.Flusher)
 		reader := bufio.NewReaderSize(call.Body, 64*1024)
 		var inTok, outTok, totalTok, cachedTok int64
@@ -1286,6 +1461,20 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, apiType string) {
 	raw = normalizeResponseModelJSON(raw, m)
 	in, out, total, cached := extractUsageDetailed(raw)
 	s.recordUsageCostCached(r.Context(), m, false, in, out, total, cached, time.Since(start).Milliseconds())
+	if cacheSignature != "" && len(candidates) > 0 && m.ID == candidates[0].ID {
+		ct := w.Header().Get("Content-Type")
+		if ct == "" {
+			ct = "application/json; charset=utf-8"
+		}
+		e := generation.Entry{Signature: cacheSignature, ProviderID: m.ProviderID, ModelID: m.ID, NativeModelID: m.NativeID, IdentityVersion: generation.IdentityVersion(m.ID, m.UpstreamModelID, m.DoctorCheckedAt), ContentType: ct, Body: raw}
+		if s.Config.Get().ExactCache.Enabled {
+			_ = s.Generation.Put(e)
+		}
+		if dedupLeader {
+			s.Generation.Complete(cacheSignature, e, true)
+			dedupFinished = true
+		}
+	}
 	_, _ = w.Write(raw)
 }
 

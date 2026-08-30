@@ -11,14 +11,14 @@
         <Grid>
             <StackPanel>
                 <TextBlock Text="Умная маршрутизация" Style="{StaticResource PageTitle}"/>
-                <TextBlock Text="Router 3.1: auto-модели, Doctor-aware scoring, Connection Pool и Resilience." Style="{StaticResource PageSubtitle}" Margin="0,3,0,0"/>
+                <TextBlock Text="Router 3.1 Adaptive: Doctor proof, EWMA quality, quota-share и объяснимый выбор." Style="{StaticResource PageSubtitle}" Margin="0,3,0,0"/>
             </StackPanel>
-            <Button x:Name="BtnRouterRefresh" Style="{StaticResource QuietButton}" Content="Обновить" Width="112" HorizontalAlignment="Right" VerticalAlignment="Top"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"><Button x:Name="BtnRouterExplain" Style="{StaticResource QuietButton}" Content="Почему модель" Width="124"/><Button x:Name="BtnRouterRefresh" Style="{StaticResource QuietButton}" Content="Обновить" Width="104" Margin="8,0,0,0"/></StackPanel>
         </Grid>
 
         <UniformGrid Grid.Row="2" Columns="4">
             <Border Style="{StaticResource Card}" Padding="13,9" Margin="0,0,7,0">
-                <StackPanel><TextBlock Text="ROUTER" Style="{StaticResource Kicker}"/><TextBlock x:Name="RouterVersion" Text="3.1" FontSize="21" Foreground="#46B8FF" Margin="0,4,0,0"/><TextBlock Text="Doctor-Aware engine" Style="{StaticResource SecondaryText}" Margin="0,3,0,0"/></StackPanel>
+                <StackPanel><TextBlock Text="ROUTER" Style="{StaticResource Kicker}"/><TextBlock x:Name="RouterVersion" Text="3.1" FontSize="21" Foreground="#46B8FF" Margin="0,4,0,0"/><TextBlock Text="Adaptive · Explainable" Style="{StaticResource SecondaryText}" Margin="0,3,0,0"/></StackPanel>
             </Border>
             <Border Style="{StaticResource Card}" Padding="13,9" Margin="3,0,4,0">
                 <StackPanel><TextBlock Text="AUTO МОДЕЛИ" Style="{StaticResource Kicker}"/><TextBlock x:Name="RouterVirtualCount" Text="8" FontSize="21" Foreground="#9C72FF" Margin="0,4,0,0"/><TextBlock Text="виртуальных профилей" Style="{StaticResource SecondaryText}" Margin="0,3,0,0"/></StackPanel>

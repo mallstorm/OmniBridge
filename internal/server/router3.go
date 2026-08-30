@@ -154,6 +154,12 @@ func (s *Server) toRouterCandidate(m providers.Model, policy config.RoutingPolic
 			c.CostPerMTokens = v
 		}
 	}
+	if s.Adaptive != nil {
+		q := s.Adaptive.Quality(m.ProviderID, m.ProviderID, m.ID)
+		c.AdaptiveQuality = q.Score
+		c.AdaptiveConfidence = q.Confidence
+		c.AdaptiveWeight = s.Config.Get().Adaptive.QualityWeight
+	}
 	return c
 }
 

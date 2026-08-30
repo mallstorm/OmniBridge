@@ -20,15 +20,25 @@ import (
 )
 
 type gigaToken struct {
-	Value   string
-	Expires time.Time
+	Value    string
+	Expires  time.Time
+	CacheKey string
 }
 type gigaTokenCache struct {
 	mu         sync.Mutex
 	byProvider map[string]gigaToken
+	inflight   map[string]*gigaRefresh
 }
 
-func newGigaTokenCache() *gigaTokenCache { return &gigaTokenCache{byProvider: map[string]gigaToken{}} }
+type gigaRefresh struct {
+	done  chan struct{}
+	token string
+	err   error
+}
+
+func newGigaTokenCache() *gigaTokenCache {
+	return &gigaTokenCache{byProvider: map[string]gigaToken{}, inflight: map[string]*gigaRefresh{}}
+}
 
 // GigaTokenState exposes only non-secret OAuth cache metadata for local UI/status.
 // The access token value itself never leaves the provider manager.
@@ -43,12 +53,6 @@ func (m *Manager) GigaTokenState(providerID string) (time.Time, bool) {
 }
 
 func (m *Manager) gigaAccessToken(ctx context.Context, p config.Provider) (string, error) {
-	m.gigaTokens.mu.Lock()
-	if t, ok := m.gigaTokens.byProvider[p.ID]; ok && time.Until(t.Expires) > 90*time.Second {
-		m.gigaTokens.mu.Unlock()
-		return t.Value, nil
-	}
-	m.gigaTokens.mu.Unlock()
 	key, err := m.credential(p)
 	if err != nil {
 		return "", err
@@ -61,11 +65,39 @@ func (m *Manager) gigaAccessToken(ctx context.Context, p config.Provider) (strin
 	if scope == "" {
 		scope = "GIGACHAT_API_PERS"
 	}
+	credentialHash := sha256.Sum256([]byte(strings.TrimSpace(key)))
+	flightKey := p.ID + "\x00" + hex.EncodeToString(credentialHash[:12]) + "\x00" + scope + "\x00" + oauth
+	m.gigaTokens.mu.Lock()
+	if t, ok := m.gigaTokens.byProvider[p.ID]; ok && t.CacheKey == flightKey && time.Until(t.Expires) > 90*time.Second {
+		m.gigaTokens.mu.Unlock()
+		return t.Value, nil
+	}
+	if f := m.gigaTokens.inflight[flightKey]; f != nil {
+		m.gigaTokens.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-f.done:
+			return f.token, f.err
+		}
+	}
+	f := &gigaRefresh{done: make(chan struct{})}
+	m.gigaTokens.inflight[flightKey] = f
+	m.gigaTokens.mu.Unlock()
+	finish := func(token string, e error) (string, error) {
+		m.gigaTokens.mu.Lock()
+		f.token = token
+		f.err = e
+		delete(m.gigaTokens.inflight, flightKey)
+		close(f.done)
+		m.gigaTokens.mu.Unlock()
+		return token, e
+	}
 	form := url.Values{}
 	form.Set("scope", scope)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oauth, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", err
+		return finish("", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -73,21 +105,21 @@ func (m *Manager) gigaAccessToken(ctx context.Context, p config.Provider) (strin
 	req.Header.Set("RqUID", uuid4())
 	resp, err := m.gigaClient().Do(req)
 	if err != nil {
-		return "", err
+		return finish("", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return "", decodeError(resp)
+		return finish("", decodeError(resp))
 	}
 	var v struct {
 		AccessToken string `json:"access_token"`
 		ExpiresAt   int64  `json:"expires_at"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
-		return "", err
+		return finish("", err)
 	}
 	if v.AccessToken == "" {
-		return "", fmt.Errorf("GigaChat OAuth returned empty access_token")
+		return finish("", fmt.Errorf("GigaChat OAuth returned empty access_token"))
 	}
 	exp := time.Now().Add(29 * time.Minute)
 	if v.ExpiresAt > 0 {
@@ -98,9 +130,9 @@ func (m *Manager) gigaAccessToken(ctx context.Context, p config.Provider) (strin
 		}
 	}
 	m.gigaTokens.mu.Lock()
-	m.gigaTokens.byProvider[p.ID] = gigaToken{Value: v.AccessToken, Expires: exp}
+	m.gigaTokens.byProvider[p.ID] = gigaToken{Value: v.AccessToken, Expires: exp, CacheKey: flightKey}
 	m.gigaTokens.mu.Unlock()
-	return v.AccessToken, nil
+	return finish(v.AccessToken, nil)
 }
 
 func uuid4() string {

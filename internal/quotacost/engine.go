@@ -29,23 +29,27 @@ type Price struct {
 }
 
 type Snapshot struct {
-	ConnectionID     string            `json:"connection_id"`
-	Confidence       string            `json:"confidence"`
-	Source           string            `json:"source,omitempty"`
-	Remaining        float64           `json:"remaining,omitempty"`
-	Limit            float64           `json:"limit,omitempty"`
-	RemainingPercent float64           `json:"remaining_percent,omitempty"`
-	RemainingKnown   bool              `json:"remaining_known"`
-	ResetAt          time.Time         `json:"reset_at,omitempty"`
-	RequestRemaining float64           `json:"request_remaining,omitempty"`
-	RequestLimit     float64           `json:"request_limit,omitempty"`
-	TokenRemaining   float64           `json:"token_remaining,omitempty"`
-	TokenLimit       float64           `json:"token_limit,omitempty"`
-	BalanceUSD       float64           `json:"balance_usd,omitempty"`
-	BalanceKnown     bool              `json:"balance_known"`
-	LowQuota         bool              `json:"low_quota"`
-	UpdatedAt        time.Time         `json:"updated_at"`
-	Raw              map[string]string `json:"raw,omitempty"`
+	ConnectionID        string            `json:"connection_id"`
+	Confidence          string            `json:"confidence"`
+	Source              string            `json:"source,omitempty"`
+	Remaining           float64           `json:"remaining,omitempty"`
+	Limit               float64           `json:"limit,omitempty"`
+	RemainingPercent    float64           `json:"remaining_percent,omitempty"`
+	RemainingKnown      bool              `json:"remaining_known"`
+	ResetAt             time.Time         `json:"reset_at,omitempty"`
+	RequestRemaining    float64           `json:"request_remaining,omitempty"`
+	RequestLimit        float64           `json:"request_limit,omitempty"`
+	TokenRemaining      float64           `json:"token_remaining,omitempty"`
+	TokenLimit          float64           `json:"token_limit,omitempty"`
+	BalanceUSD          float64           `json:"balance_usd,omitempty"`
+	BalanceKnown        bool              `json:"balance_known"`
+	LowQuota            bool              `json:"low_quota"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+	BurnRatePerHour     float64           `json:"burn_rate_per_hour,omitempty"`
+	PredictedExhaustion time.Time         `json:"predicted_exhaustion,omitempty"`
+	ReservePercent      float64           `json:"reserve_percent,omitempty"`
+	Priority            float64           `json:"priority,omitempty"`
+	Raw                 map[string]string `json:"raw,omitempty"`
 }
 
 type Estimate struct {
@@ -190,12 +194,25 @@ func (e *Engine) SetQuota(q Snapshot) error {
 	if q.Source == "" {
 		q.Source = "operator"
 	}
-	q.UpdatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	e.mu.RLock()
+	previous, hadPrevious := e.quotas[q.ConnectionID]
+	e.mu.RUnlock()
+	q.UpdatedAt = now
 	e.mu.RLock()
 	threshold := e.cfg.LowQuotaPercent
 	e.mu.RUnlock()
 	if q.RemainingKnown {
 		q.LowQuota = q.RemainingPercent <= threshold
+		if hadPrevious && previous.RemainingKnown && q.RemainingPercent < previous.RemainingPercent {
+			hours := now.Sub(previous.UpdatedAt).Hours()
+			if hours > 0 {
+				q.BurnRatePerHour = (previous.RemainingPercent - q.RemainingPercent) / hours
+				if q.BurnRatePerHour > 0 {
+					q.PredictedExhaustion = now.Add(time.Duration(q.RemainingPercent / q.BurnRatePerHour * float64(time.Hour)))
+				}
+			}
+		}
 	}
 	b, _ := json.Marshal(q)
 	if e.db != nil {
@@ -304,7 +321,14 @@ func (e *Engine) Quota(connectionID string) (Snapshot, bool) {
 
 func (e *Engine) CandidateHints(connectionID, provider, model string) (quota float64, quotaKnown bool, cost float64, costKnown bool) {
 	if q, ok := e.Quota(connectionID); ok && q.RemainingKnown {
-		quota, quotaKnown = q.RemainingPercent, true
+		quota = q.RemainingPercent - q.ReservePercent
+		if quota < 0 {
+			quota = 0
+		}
+		if q.Priority > 0 {
+			quota *= q.Priority
+		}
+		quotaKnown = true
 	}
 	if p, ok := e.Price(provider, model); ok {
 		// Router compares one representative unit: 1M input + 1M output tokens.

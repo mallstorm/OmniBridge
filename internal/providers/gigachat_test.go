@@ -3,14 +3,17 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"omnibridge/internal/config"
 	"omnibridge/internal/secretstore"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestGigaToolTranslationRoundTrip(t *testing.T) {
@@ -157,5 +160,45 @@ func TestGigaProxyRetriesUnauthorizedOnlyOnce(t *testing.T) {
 	}
 	if oauthCalls.Load() != 2 || chatCalls.Load() != 2 {
 		t.Fatalf("unbounded or missing retry: oauth=%d chat=%d", oauthCalls.Load(), chatCalls.Load())
+	}
+}
+
+func TestGigaTokenRefreshSingleflight(t *testing.T) {
+	var oauthCalls atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		oauthCalls.Add(1)
+		time.Sleep(30 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "shared-token", "expires_at": 4102444800000})
+	}))
+	defer up.Close()
+	dir := t.TempDir()
+	secrets := secretstore.New(filepath.Join(dir, "secrets.json"))
+	if err := secrets.Put("provider:giga", "basic-key"); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(secrets)
+	p := config.Provider{ID: "giga", Kind: "gigachat", CredentialRef: "provider:giga", Scope: "GIGACHAT_API_PERS", Quirks: map[string]string{"gigachat_oauth_url": up.URL}}
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			token, err := m.gigaAccessToken(context.Background(), p)
+			if err == nil && token != "shared-token" {
+				err = fmt.Errorf("token=%q", token)
+			}
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if oauthCalls.Load() != 1 {
+		t.Fatalf("refresh stampede: calls=%d", oauthCalls.Load())
 	}
 }

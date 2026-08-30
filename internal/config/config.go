@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	CurrentVersion       = "1.0.0-rc7"
-	CurrentSchemaVersion = 5
+	CurrentVersion       = "1.0.0-rc8"
+	CurrentSchemaVersion = 6
 )
 
 type RoutingPolicy struct {
@@ -62,6 +62,33 @@ type ContextGuardConfig struct {
 	ReserveOutputTokens int     `json:"reserve_output_tokens,omitempty"`
 	MinRecentMessages   int     `json:"min_recent_messages,omitempty"`
 	MaxRequestBytes     int     `json:"max_request_bytes,omitempty"`
+}
+
+// AdaptiveConfig controls only soft routing feedback. Circuit breakers,
+// authentication, quota and Doctor checks remain authoritative hard gates.
+type AdaptiveConfig struct {
+	Enabled            bool    `json:"enabled"`
+	SuccessAlpha       float64 `json:"success_alpha,omitempty"`
+	LatencyAlpha       float64 `json:"latency_alpha,omitempty"`
+	FullConfidenceAt   int     `json:"full_confidence_at,omitempty"`
+	QualityWeight      float64 `json:"quality_weight,omitempty"`
+	EventQueueSize     int     `json:"event_queue_size,omitempty"`
+	DecisionTTLMinutes int     `json:"decision_ttl_minutes,omitempty"`
+	MaxDecisions       int     `json:"max_decisions,omitempty"`
+}
+
+type ExactCacheConfig struct {
+	Enabled       bool `json:"enabled"`
+	TTLSeconds    int  `json:"ttl_seconds,omitempty"`
+	MaxEntries    int  `json:"max_entries,omitempty"`
+	MaxEntryBytes int  `json:"max_entry_bytes,omitempty"`
+	Deduplicate   bool `json:"deduplicate"`
+}
+
+type CatalogSyncConfig struct {
+	Enabled      bool   `json:"enabled"`
+	URL          string `json:"url,omitempty"`
+	RefreshHours int    `json:"refresh_hours,omitempty"`
 }
 
 type RemoteConfig struct {
@@ -119,6 +146,9 @@ type Config struct {
 	Routing       RoutingConfig       `json:"routing,omitempty"`
 	QuotaCost     QuotaCostConfig     `json:"quota_cost,omitempty"`
 	ContextGuard  ContextGuardConfig  `json:"context_guard,omitempty"`
+	Adaptive      AdaptiveConfig      `json:"adaptive_routing,omitempty"`
+	ExactCache    ExactCacheConfig    `json:"exact_response_cache,omitempty"`
+	CatalogSync   CatalogSyncConfig   `json:"catalog_sync,omitempty"`
 	Remote        RemoteConfig        `json:"remote,omitempty"`
 }
 
@@ -165,7 +195,10 @@ func defaultConfig() Config {
 		Providers:     []Provider{},
 		Accounts:      []AccountConnection{},
 		QuotaCost:     QuotaCostConfig{Enabled: true, LowQuotaPercent: 10, PricingRefreshHours: 24},
-		ContextGuard:  ContextGuardConfig{Enabled: true, Mode: "compact", MaxContextPercent: 90, ReserveOutputTokens: 2048, MinRecentMessages: 8, MaxRequestBytes: 32 << 20},
+		ContextGuard:  ContextGuardConfig{Enabled: true, Mode: "safe", MaxContextPercent: 90, ReserveOutputTokens: 2048, MinRecentMessages: 8, MaxRequestBytes: 32 << 20},
+		Adaptive:      AdaptiveConfig{Enabled: true, SuccessAlpha: 0.2, LatencyAlpha: 0.1, FullConfidenceAt: 50, QualityWeight: 32, EventQueueSize: 512, DecisionTTLMinutes: 60, MaxDecisions: 500},
+		ExactCache:    ExactCacheConfig{Enabled: false, TTLSeconds: 120, MaxEntries: 256, MaxEntryBytes: 2 << 20, Deduplicate: true},
+		CatalogSync:   CatalogSyncConfig{Enabled: false, URL: "https://models.dev/api.json", RefreshHours: 24},
 		Remote:        RemoteConfig{Enabled: false, AllowedCIDRs: []string{}},
 		Routing: RoutingConfig{
 			Aliases:                       map[string]string{},
@@ -298,6 +331,63 @@ func (s *Store) Load() error {
 		if c.Remote.AllowedCIDRs == nil {
 			c.Remote.AllowedCIDRs = []string{}
 		}
+		migrated = true
+	}
+	if oldSchemaVersion < 6 {
+		c.Adaptive = AdaptiveConfig{Enabled: true, SuccessAlpha: 0.2, LatencyAlpha: 0.1, FullConfidenceAt: 50, QualityWeight: 32, EventQueueSize: 512, DecisionTTLMinutes: 60, MaxDecisions: 500}
+		c.ExactCache = ExactCacheConfig{Enabled: false, TTLSeconds: 120, MaxEntries: 256, MaxEntryBytes: 2 << 20, Deduplicate: true}
+		c.CatalogSync = CatalogSyncConfig{Enabled: false, URL: "https://models.dev/api.json", RefreshHours: 24}
+		if strings.EqualFold(c.ContextGuard.Mode, "compact") {
+			c.ContextGuard.Mode = "safe"
+		}
+		migrated = true
+	}
+	if c.Adaptive.SuccessAlpha <= 0 || c.Adaptive.SuccessAlpha > 1 {
+		c.Adaptive.SuccessAlpha = 0.2
+		migrated = true
+	}
+	if c.Adaptive.LatencyAlpha <= 0 || c.Adaptive.LatencyAlpha > 1 {
+		c.Adaptive.LatencyAlpha = 0.1
+		migrated = true
+	}
+	if c.Adaptive.FullConfidenceAt < 5 || c.Adaptive.FullConfidenceAt > 10000 {
+		c.Adaptive.FullConfidenceAt = 50
+		migrated = true
+	}
+	if c.Adaptive.QualityWeight <= 0 || c.Adaptive.QualityWeight > 200 {
+		c.Adaptive.QualityWeight = 32
+		migrated = true
+	}
+	if c.Adaptive.EventQueueSize < 16 || c.Adaptive.EventQueueSize > 65536 {
+		c.Adaptive.EventQueueSize = 512
+		migrated = true
+	}
+	if c.Adaptive.DecisionTTLMinutes < 1 || c.Adaptive.DecisionTTLMinutes > 10080 {
+		c.Adaptive.DecisionTTLMinutes = 60
+		migrated = true
+	}
+	if c.Adaptive.MaxDecisions < 10 || c.Adaptive.MaxDecisions > 100000 {
+		c.Adaptive.MaxDecisions = 500
+		migrated = true
+	}
+	if c.ExactCache.TTLSeconds < 1 || c.ExactCache.TTLSeconds > 86400 {
+		c.ExactCache.TTLSeconds = 120
+		migrated = true
+	}
+	if c.ExactCache.MaxEntries < 1 || c.ExactCache.MaxEntries > 100000 {
+		c.ExactCache.MaxEntries = 256
+		migrated = true
+	}
+	if c.ExactCache.MaxEntryBytes < 1024 || c.ExactCache.MaxEntryBytes > 32<<20 {
+		c.ExactCache.MaxEntryBytes = 2 << 20
+		migrated = true
+	}
+	if c.CatalogSync.RefreshHours < 1 || c.CatalogSync.RefreshHours > 720 {
+		c.CatalogSync.RefreshHours = 24
+		migrated = true
+	}
+	if strings.TrimSpace(c.CatalogSync.URL) == "" {
+		c.CatalogSync.URL = "https://models.dev/api.json"
 		migrated = true
 	}
 	if c.QuotaCost.LowQuotaPercent <= 0 || c.QuotaCost.LowQuotaPercent > 100 {
@@ -547,7 +637,7 @@ func (s *Store) SetRouting(r RoutingConfig) error {
 		name = sanitizeID(name)
 		policy.Mode = strings.ToLower(strings.TrimSpace(policy.Mode))
 		switch policy.Mode {
-		case "direct", "priority", "fastest", "agent_ready_only", "local_only", "cloud_only", "weighted", "round_robin", "least_used", "p2c", "quota_optimized", "cost_optimized", "auto":
+		case "direct", "priority", "fastest", "agent_ready_only", "local_only", "cloud_only", "weighted", "round_robin", "least_used", "p2c", "quota_optimized", "quota_share", "cost_optimized", "auto":
 		default:
 			return errors.New("unsupported routing policy mode")
 		}
@@ -617,10 +707,13 @@ func (s *Store) SetContextGuard(c ContextGuardConfig) error {
 	defer s.mu.Unlock()
 	c.Mode = strings.ToLower(strings.TrimSpace(c.Mode))
 	if c.Mode == "" {
-		c.Mode = "compact"
+		c.Mode = "safe"
 	}
-	if c.Mode != "compact" && c.Mode != "observe" && c.Mode != "off" {
-		return errors.New("context guard mode must be compact, observe or off")
+	if c.Mode == "compact" {
+		c.Mode = "safe"
+	}
+	if c.Mode != "safe" && c.Mode != "balanced" && c.Mode != "experimental" && c.Mode != "observe" && c.Mode != "off" {
+		return errors.New("context guard mode must be safe, balanced, experimental, observe or off")
 	}
 	if c.MaxContextPercent <= 10 || c.MaxContextPercent > 100 {
 		return errors.New("max_context_percent must be > 10 and <= 100")
@@ -635,6 +728,46 @@ func (s *Store) SetContextGuard(c ContextGuardConfig) error {
 		return errors.New("max_request_bytes is out of range")
 	}
 	s.cfg.ContextGuard = c
+	return s.saveLocked()
+}
+
+func (s *Store) SetAdaptive(c AdaptiveConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c.SuccessAlpha <= 0 || c.SuccessAlpha > 1 || c.LatencyAlpha <= 0 || c.LatencyAlpha > 1 {
+		return errors.New("adaptive EWMA alpha values must be > 0 and <= 1")
+	}
+	if c.FullConfidenceAt < 5 || c.FullConfidenceAt > 10000 || c.QualityWeight <= 0 || c.QualityWeight > 200 {
+		return errors.New("adaptive confidence or quality weight is out of range")
+	}
+	if c.EventQueueSize < 16 || c.EventQueueSize > 65536 || c.MaxDecisions < 10 || c.MaxDecisions > 100000 {
+		return errors.New("adaptive queue or retention is out of range")
+	}
+	if c.DecisionTTLMinutes < 1 || c.DecisionTTLMinutes > 10080 {
+		return errors.New("decision_ttl_minutes is out of range")
+	}
+	s.cfg.Adaptive = c
+	return s.saveLocked()
+}
+
+func (s *Store) SetExactCache(c ExactCacheConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c.TTLSeconds < 1 || c.TTLSeconds > 86400 || c.MaxEntries < 1 || c.MaxEntries > 100000 || c.MaxEntryBytes < 1024 || c.MaxEntryBytes > 32<<20 {
+		return errors.New("exact response cache limits are out of range")
+	}
+	s.cfg.ExactCache = c
+	return s.saveLocked()
+}
+
+func (s *Store) SetCatalogSync(c CatalogSyncConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c.URL = strings.TrimSpace(c.URL)
+	if c.URL == "" || c.RefreshHours < 1 || c.RefreshHours > 720 {
+		return errors.New("catalog sync URL or refresh interval is invalid")
+	}
+	s.cfg.CatalogSync = c
 	return s.saveLocked()
 }
 

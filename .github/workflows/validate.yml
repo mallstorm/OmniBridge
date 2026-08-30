@@ -2,7 +2,13 @@ name: Validate OmniBridge
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   windows:
@@ -13,12 +19,12 @@ jobs:
         with:
           go-version: '1.27.x'
           cache: false
-      - name: Go formatting
+      - name: Go formatting gate
         shell: pwsh
         run: |
           $goFiles = Get-ChildItem -Path cmd,internal -Recurse -Filter *.go | ForEach-Object { $_.FullName }
           gofmt -w $goFiles
-          git diff --stat -- cmd internal
+          git diff --exit-code -- cmd internal
       - name: Regenerate Windows resources
         shell: pwsh
         run: |
@@ -36,15 +42,20 @@ jobs:
       - name: Go vet
         shell: pwsh
         run: go vet ./...
-      - name: Vulnerability scan
-        continue-on-error: true
+      - name: Vulnerability gate
         shell: pwsh
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           govulncheck ./...
       - name: Validate XAML and PowerShell
         shell: pwsh
         run: ./scripts/validate-ui.ps1 -Root $PWD
+      - name: Windows PowerShell 5.1 acceptance
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion
+          ./scripts/validate-ui.ps1 -Root $PWD
+          go test ./internal/secretstore -run DPAPI -count=1 -v
       - name: Build Windows x64
         shell: pwsh
         run: ./scripts/build-release.ps1 -Root $PWD
