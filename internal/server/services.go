@@ -426,6 +426,9 @@ func (s *Server) remoteGuard(next http.Handler) http.Handler {
 				return
 			}
 		}
+		if s.dispatchTeamAdmin(w, r) {
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
