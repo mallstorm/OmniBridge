@@ -44,6 +44,9 @@ func TestExecutionIsDisabledByDefault(t *testing.T) {
 	if cfg.Execution.MaxCalls != 3 || cfg.Execution.MaxWallTimeSeconds != 90 {
 		t.Fatalf("unexpected bounded defaults: %+v", cfg.Execution)
 	}
+	if cfg.Execution.AllowCrossProviderReview || cfg.Execution.AllowCrossProviderAssistants {
+		t.Fatalf("cross-provider sharing must be disabled by default: %+v", cfg.Execution)
+	}
 }
 
 func TestDisablingPlanningForcesExecutionOff(t *testing.T) {
@@ -107,28 +110,43 @@ func TestServiceRejectsUnboundedExecutionLimits(t *testing.T) {
 	}
 }
 
-func TestPreferIndependentReviewerAndCostEstimate(t *testing.T) {
+func TestReviewerProviderPolicyAndCostEstimate(t *testing.T) {
 	lead := candidate("lead", []string{"analysis"})
 	lead.ProviderID = "p1"
 	same := candidate("same", []string{"review", "analysis"})
 	same.ProviderID = "p1"
 	other := candidate("other", []string{"review", "analysis"})
 	other.ProviderID = "p2"
-	other.RouterScore = same.RouterScore - 5
-	plan := Plan{
-		Task: Task{Risk: "high", RequiredRoles: []string{"analysis"}},
-		Valid: true,
-		Lead: &Assignment{Role: "lead", ModelID: lead.ModelID, ProviderID: lead.ProviderID},
-		Reviewer: &Assignment{Role: "review", ModelID: same.ModelID, ProviderID: same.ProviderID},
+	other.RouterScore = same.RouterScore + 10
+	policy := Policy{Enabled: true, ReviewerRiskThreshold: "high"}
+	base := Plan{
+		Task:             Task{Risk: "high", RequiredRoles: []string{"analysis"}},
+		Valid:            true,
+		Lead:             &Assignment{Role: "lead", ModelID: lead.ModelID, ProviderID: lead.ProviderID},
+		Reviewer:         &Assignment{Role: "review", ModelID: other.ModelID, ProviderID: other.ProviderID},
 		ReviewerRequired: true,
 	}
-	plan = PreferIndependentReviewer(plan, []Candidate{lead, same, other}, Policy{Enabled: true, ReviewerRiskThreshold: "high"})
-	if plan.Reviewer == nil || plan.Reviewer.ModelID != "other" {
-		t.Fatalf("different-provider reviewer was not preferred: %+v", plan.Reviewer)
+
+	privatePlan := ApplyReviewerProviderPolicy(base, []Candidate{lead, same, other}, policy, false)
+	if !privatePlan.Valid || privatePlan.Reviewer == nil || privatePlan.Reviewer.ModelID != "same" {
+		t.Fatalf("default privacy boundary did not select same-provider reviewer: %+v", privatePlan)
 	}
+
+	crossPlan := base
+	crossPlan.Reviewer = &Assignment{Role: "review", ModelID: same.ModelID, ProviderID: same.ProviderID}
+	crossPlan = ApplyReviewerProviderPolicy(crossPlan, []Candidate{lead, same, other}, policy, true)
+	if !crossPlan.Valid || crossPlan.Reviewer == nil || crossPlan.Reviewer.ModelID != "other" {
+		t.Fatalf("explicit cross-provider review did not prefer external reviewer: %+v", crossPlan)
+	}
+
+	noSame := ApplyReviewerProviderPolicy(base, []Candidate{lead, other}, policy, false)
+	if noSame.Valid || noSame.Reviewer != nil {
+		t.Fatalf("privacy boundary did not fail closed without same-provider reviewer: %+v", noSame)
+	}
+
 	lead.CostKnown, lead.CostPerMTokens = true, 2
 	other.CostKnown, other.CostPerMTokens = true, 4
-	usd, known := EstimateExecutionCost(plan, []Candidate{lead, other}, nil, 1000, 1000)
+	usd, known := EstimateExecutionCost(crossPlan, []Candidate{lead, other}, nil, 1000, 1000)
 	if !known || usd <= 0 {
 		t.Fatalf("cost estimate invalid usd=%f known=%v", usd, known)
 	}
