@@ -9,16 +9,18 @@ import (
 // use Team Routing dry-run/planning without allowing any additional upstream
 // calls. Zero values are normalized by the persistence service.
 type ExecutionConfig struct {
-	Enabled                 bool    `json:"enabled"`
-	MaxCalls                int     `json:"max_calls,omitempty"`
-	MaxWallTimeSeconds      int     `json:"max_wall_time_seconds,omitempty"`
-	MaxInputBytes           int64   `json:"max_input_bytes,omitempty"`
-	MaxResponseBytes        int64   `json:"max_response_bytes,omitempty"`
-	MaxReviewBytes          int64   `json:"max_review_bytes,omitempty"`
-	MaxEstimatedCostUSD     float64 `json:"max_estimated_cost_usd,omitempty"`
-	RequireKnownCost        bool    `json:"require_known_cost,omitempty"`
-	RunAssistants           bool    `json:"run_assistants,omitempty"`
-	BlockOnReviewConcernsAt string  `json:"block_on_review_concerns_at,omitempty"`
+	Enabled                     bool    `json:"enabled"`
+	MaxCalls                    int     `json:"max_calls,omitempty"`
+	MaxWallTimeSeconds          int     `json:"max_wall_time_seconds,omitempty"`
+	MaxInputBytes               int64   `json:"max_input_bytes,omitempty"`
+	MaxResponseBytes            int64   `json:"max_response_bytes,omitempty"`
+	MaxReviewBytes              int64   `json:"max_review_bytes,omitempty"`
+	MaxEstimatedCostUSD         float64 `json:"max_estimated_cost_usd,omitempty"`
+	RequireKnownCost            bool    `json:"require_known_cost,omitempty"`
+	RunAssistants               bool    `json:"run_assistants,omitempty"`
+	AllowCrossProviderReview    bool    `json:"allow_cross_provider_review,omitempty"`
+	AllowCrossProviderAssistants bool   `json:"allow_cross_provider_assistants,omitempty"`
+	BlockOnReviewConcernsAt     string  `json:"block_on_review_concerns_at,omitempty"`
 }
 
 // ValidateAssignment reuses exactly the same role/risk/quota gates as planning.
@@ -42,17 +44,26 @@ func ValidateAssignment(c Candidate, task Task, role string, policy Policy) []st
 	return nil
 }
 
-// PreferIndependentReviewer keeps the normal reviewer score, but when the
-// selected reviewer shares the lead provider it prefers a valid reviewer from a
-// different provider. Different provider is not a hard requirement because a
-// single-provider installation still needs a usable fail-closed review path.
-func PreferIndependentReviewer(plan Plan, candidates []Candidate, policy Policy) Plan {
+// ApplyReviewerProviderPolicy prevents implicit cross-provider disclosure by
+// default. When cross-provider review is allowed, a different provider is
+// preferred when available but not required. When it is not allowed, a
+// different-provider reviewer is replaced by an eligible reviewer on the lead
+// provider or the plan becomes fail-closed.
+func ApplyReviewerProviderPolicy(plan Plan, candidates []Candidate, policy Policy, allowCrossProvider bool) Plan {
 	if plan.Lead == nil || !plan.ReviewerRequired {
 		return plan
 	}
-	if plan.Reviewer != nil && plan.Reviewer.ProviderID != "" && plan.Reviewer.ProviderID != plan.Lead.ProviderID {
-		return plan
+	leadProvider := strings.TrimSpace(plan.Lead.ProviderID)
+	if plan.Reviewer != nil {
+		reviewerProvider := strings.TrimSpace(plan.Reviewer.ProviderID)
+		if allowCrossProvider && reviewerProvider != "" && reviewerProvider != leadProvider {
+			return plan
+		}
+		if !allowCrossProvider && reviewerProvider == leadProvider {
+			return plan
+		}
 	}
+
 	type scored struct {
 		c       Candidate
 		score   float64
@@ -60,7 +71,14 @@ func PreferIndependentReviewer(plan Plan, candidates []Candidate, policy Policy)
 	}
 	alternatives := []scored{}
 	for _, c := range candidates {
-		if c.ModelID == plan.Lead.ModelID || c.ProviderID == plan.Lead.ProviderID {
+		if c.ModelID == plan.Lead.ModelID {
+			continue
+		}
+		if allowCrossProvider {
+			if strings.TrimSpace(c.ProviderID) == leadProvider {
+				continue
+			}
+		} else if strings.TrimSpace(c.ProviderID) != leadProvider {
 			continue
 		}
 		if reasons := ValidateAssignment(c, plan.Task, "review", policy); len(reasons) != 0 {
@@ -69,11 +87,24 @@ func PreferIndependentReviewer(plan Plan, candidates []Candidate, policy Policy)
 		reviewTask := plan.Task
 		reviewTask.RequiredRoles = []string{"review", "analysis", "security"}
 		score, why, _ := assignmentScore(c, reviewTask, "review")
-		score += 20
-		why = append(why, "provider_independent_review")
+		if allowCrossProvider {
+			score += 20
+			why = append(why, "cross_provider_review_explicitly_allowed")
+		} else {
+			score += 20
+			why = append(why, "same_provider_privacy_boundary")
+		}
 		alternatives = append(alternatives, scored{c: c, score: score, reasons: why})
 	}
 	if len(alternatives) == 0 {
+		if allowCrossProvider {
+			// Cross-provider is permitted, not mandatory. Keep the existing
+			// same-provider reviewer if there is no eligible external alternative.
+			return plan
+		}
+		plan.Reviewer = nil
+		plan.Valid = false
+		plan.Warnings = append(plan.Warnings, "cross_provider_review_blocked_no_same_provider_reviewer")
 		return plan
 	}
 	sort.SliceStable(alternatives, func(i, j int) bool {
