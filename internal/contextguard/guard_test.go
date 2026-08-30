@@ -2,9 +2,10 @@ package contextguard
 
 import (
 	"encoding/json"
-	"omnibridge/internal/config"
 	"strings"
 	"testing"
+
+	"omnibridge/internal/config"
 )
 
 func TestCompactionPreservesSystemAndRecent(t *testing.T) {
@@ -48,6 +49,28 @@ func TestSafeModeNeverRewritesCodeOrToolSchema(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "func main()") {
 		t.Fatal("code block was removed or rewritten")
+	}
+}
+
+func TestSafeModePreservesToolCallAndResultPairs(t *testing.T) {
+	messages := []any{
+		map[string]any{"role": "system", "content": "rules"},
+		map[string]any{"role": "user", "content": "duplicate"},
+		map[string]any{"role": "user", "content": "duplicate"},
+		map[string]any{"role": "assistant", "content": "", "tool_calls": []any{map[string]any{"id": "call-1", "type": "function", "function": map[string]any{"name": "lookup", "arguments": `{}`}}}},
+		map[string]any{"role": "tool", "tool_call_id": "call-1", "content": "plain result that must survive"},
+		map[string]any{"role": "user", "content": "latest"},
+	}
+	raw, _ := json.Marshal(map[string]any{"model": "m", "messages": messages})
+	out, _, err := Apply(raw, "chat-completions", 1024, config.ContextGuardConfig{Enabled: true, Mode: "safe", MaxContextPercent: 11, MinRecentMessages: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(out)
+	for _, required := range []string{"call-1", "lookup", "plain result that must survive"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("tool contract fragment %q was removed: %s", required, text)
+		}
 	}
 }
 
