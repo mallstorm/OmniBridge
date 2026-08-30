@@ -105,6 +105,26 @@ func Signature(namespace, provider, model, native, identity string, raw []byte) 
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+func (m *Manager) pruneCompletedLocked(now time.Time) {
+	for k, e := range m.completed {
+		if !now.Before(e.ExpiresAt) {
+			delete(m.completed, k)
+		}
+	}
+}
+
+func (m *Manager) touchLocked(signature string) {
+	for i, k := range m.order {
+		if k != signature {
+			continue
+		}
+		copy(m.order[i:], m.order[i+1:])
+		m.order = m.order[:len(m.order)-1]
+		break
+	}
+	m.order = append(m.order, signature)
+}
+
 func (m *Manager) pruneLocked(now time.Time) {
 	keep := m.order[:0]
 	for _, k := range m.order {
@@ -115,6 +135,7 @@ func (m *Manager) pruneLocked(now time.Time) {
 		}
 	}
 	m.order = keep
+	m.pruneCompletedLocked(now)
 	max := m.cfg.MaxEntries
 	if max < 1 {
 		max = 256
@@ -136,6 +157,7 @@ func (m *Manager) Get(signature string) (Entry, bool) {
 	}
 	e.Hits++
 	m.entries[signature] = e
+	m.touchLocked(signature)
 	m.hits.Add(1)
 	return clone(e), true
 }
@@ -161,10 +183,8 @@ func (m *Manager) Put(e Entry) bool {
 		ttl = 120
 	}
 	e.ExpiresAt = now.Add(time.Duration(ttl) * time.Second)
-	if _, ok := m.entries[e.Signature]; !ok {
-		m.order = append(m.order, e.Signature)
-	}
 	m.entries[e.Signature] = clone(e)
+	m.touchLocked(e.Signature)
 	m.pruneLocked(now)
 	return true
 }
@@ -174,6 +194,7 @@ func (m *Manager) Put(e Entry) bool {
 func (m *Manager) Join(signature string) (<-chan struct{}, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.pruneCompletedLocked(time.Now())
 	if !m.cfg.Deduplicate {
 		return nil, true
 	}
@@ -187,12 +208,14 @@ func (m *Manager) Join(signature string) (<-chan struct{}, bool) {
 }
 func (m *Manager) Complete(signature string, e Entry, ok bool) {
 	m.mu.Lock()
+	now := time.Now()
+	m.pruneCompletedLocked(now)
 	f := m.flights[signature]
 	if f != nil {
 		f.entry = clone(e)
 		f.ok = ok
 		if ok {
-			e.ExpiresAt = time.Now().Add(5 * time.Second)
+			e.ExpiresAt = now.Add(5 * time.Second)
 			m.completed[signature] = clone(e)
 		}
 		delete(m.flights, signature)
@@ -203,17 +226,25 @@ func (m *Manager) Complete(signature string, e Entry, ok bool) {
 func (m *Manager) WaitResult(signature string) (Entry, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if e, ok := m.entries[signature]; ok {
+	now := time.Now()
+	m.pruneCompletedLocked(now)
+	if e, ok := m.entries[signature]; ok && now.Before(e.ExpiresAt) {
+		m.touchLocked(signature)
 		return clone(e), true
 	}
 	e, ok := m.completed[signature]
-	if !ok || time.Now().After(e.ExpiresAt) {
-		delete(m.completed, signature)
+	if !ok {
 		return Entry{}, false
 	}
 	return clone(e), true
 }
-func (m *Manager) Clear() { m.mu.Lock(); m.entries = map[string]Entry{}; m.order = nil; m.mu.Unlock() }
+func (m *Manager) Clear() {
+	m.mu.Lock()
+	m.entries = map[string]Entry{}
+	m.completed = map[string]Entry{}
+	m.order = nil
+	m.mu.Unlock()
+}
 func (m *Manager) Snapshot() map[string]any {
 	m.mu.Lock()
 	m.pruneLocked(time.Now())
@@ -223,8 +254,9 @@ func (m *Manager) Snapshot() map[string]any {
 		list = append(list, e)
 	}
 	active := len(m.flights)
+	completed := len(m.completed)
 	cfg := m.cfg
 	m.mu.Unlock()
 	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt.After(list[j].CreatedAt) })
-	return map[string]any{"version": Version, "config": cfg, "entries": len(list), "active_deduplications": active, "hits": m.hits.Load(), "misses": m.misses.Load(), "dedup_waits": m.dedupWaits.Load(), "recent": list}
+	return map[string]any{"version": Version, "config": cfg, "entries": len(list), "active_deduplications": active, "completed_deduplications": completed, "hits": m.hits.Load(), "misses": m.misses.Load(), "dedup_waits": m.dedupWaits.Load(), "recent": list}
 }
