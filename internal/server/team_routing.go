@@ -318,18 +318,20 @@ func (s *Server) teamRoutingEvaluate(w http.ResponseWriter, r *http.Request) {
 	cfg := svc.Config()
 	candidates, profileSources := s.teamCandidates(req)
 	plan := svc.Engine().Plan(task, candidates, cfg.Policy)
-	plan = orchestration.PreferIndependentReviewer(plan, candidates, cfg.Policy)
+	plan = orchestration.ApplyReviewerProviderPolicy(plan, candidates, cfg.Policy, cfg.Execution.AllowCrossProviderReview)
 	out := map[string]any{
-		"version":                   orchestration.Version,
-		"execution":                 "dry_run_only",
-		"bounded_execution_enabled": cfg.Execution.Enabled,
-		"request_model":             meta.Model,
-		"api_type":                  apiType,
-		"requirements":              req,
-		"plan":                      plan,
-		"profile_sources":           profileSources,
-		"virtual_models":            teamVirtualModels,
-		"hard_gates":                []string{"health", "chat_verified", "identity_verified_for_high_risk", "doctor_verified_for_high_risk", "agent_ready_for_tools", "context", "protected_quota_reserve", "dispatch_time_revalidation"},
+		"version":                         orchestration.Version,
+		"execution":                       "dry_run_only",
+		"bounded_execution_enabled":       cfg.Execution.Enabled,
+		"allow_cross_provider_review":     cfg.Execution.AllowCrossProviderReview,
+		"allow_cross_provider_assistants": cfg.Execution.AllowCrossProviderAssistants,
+		"request_model":                   meta.Model,
+		"api_type":                        apiType,
+		"requirements":                    req,
+		"plan":                            plan,
+		"profile_sources":                 profileSources,
+		"virtual_models":                  teamVirtualModels,
+		"hard_gates":                      []string{"health", "chat_verified", "identity_verified_for_high_risk", "doctor_verified_for_high_risk", "agent_ready_for_tools", "context", "protected_quota_reserve", "provider_privacy_boundary", "dispatch_time_revalidation"},
 	}
 	if !cfg.Enabled {
 		out["enabled"] = false
