@@ -121,10 +121,20 @@ func (s *Server) teamCandidates(req obr.Requirements) ([]orchestration.Candidate
 
 func (s *Server) dispatchTeamAdmin(w http.ResponseWriter, r *http.Request) bool {
 	// remoteGuard calls this extension point only after the remote CIDR policy.
-	// Claim data-plane requests only when their body explicitly selects team/*;
-	// all ordinary /v1 traffic falls through to the unchanged RC8 mux.
-	if s.dispatchTeamData(w, r) {
-		return true
+	// Bounded data execution is an explicit per-request opt-in. Without this
+	// header ordinary RC8 /v1 traffic is not read or touched by Team Routing.
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-OmniBridge-Team-Execute")), "true") && teamAPIType(strings.TrimSuffix(r.URL.Path, "/")) != "" && r.Method == http.MethodPost {
+		if !authOK(r, s.Config.Get().DataAPIKey) {
+			jsonErr(w, http.StatusUnauthorized, "invalid local bridge key")
+			return true
+		}
+		if s.paused.Load() {
+			jsonOut(w, http.StatusServiceUnavailable, map[string]any{"error": map[string]any{"message": "OmniBridge gateway is paused from Tray", "type": "gateway_paused", "code": "gateway_paused"}})
+			return true
+		}
+		if s.dispatchTeamData(w, r) {
+			return true
+		}
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	var handler http.HandlerFunc
@@ -163,7 +173,8 @@ func (s *Server) dispatchTeamAdmin(w http.ResponseWriter, r *http.Request) bool 
 func (s *Server) teamRoutingStatus(w http.ResponseWriter, r *http.Request) {
 	out := s.teamService().Snapshot()
 	out["virtual_models"] = teamVirtualModels
-	out["execution_contract"] = "bounded_non_streaming"
+	out["execution_contract"] = "bounded_non_streaming_header_opt_in"
+	out["execution_header"] = "X-OmniBridge-Team-Execute: true"
 	jsonOut(w, http.StatusOK, out)
 }
 
