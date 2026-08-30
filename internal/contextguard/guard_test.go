@@ -21,6 +21,9 @@ func TestCompactionPreservesSystemAndRecent(t *testing.T) {
 	if rep.Action != "compacted" || rep.RemovedMessages == 0 || len(out) >= len(raw) {
 		t.Fatalf("unexpected report %+v", rep)
 	}
+	if strings.Contains(string(out), "OmniBridge Context Guard") {
+		t.Fatal("safe compaction injected a synthetic prompt message")
+	}
 	var root map[string]any
 	_ = json.Unmarshal(out, &root)
 	arr := root["messages"].([]any)
