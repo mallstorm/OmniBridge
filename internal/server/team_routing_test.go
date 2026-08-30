@@ -41,7 +41,7 @@ func TestDispatchTeamAdminStatusDisabledByDefault(t *testing.T) {
 	if !s.dispatchTeamAdmin(rr, req) {
 		t.Fatal("team route not claimed")
 	}
-	if rr.Code != http.StatusOK || !bytes.Contains(rr.Body.Bytes(), []byte(`"enabled":false`)) {
+	if rr.Code != http.StatusOK || !bytes.Contains(rr.Body.Bytes(), []byte(`"enabled":false`)) || !bytes.Contains(rr.Body.Bytes(), []byte(`"team/smart"`)) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
@@ -60,6 +60,50 @@ func TestDispatchTeamAdminRejectsWrongMethodAndFallsThroughUnknownPath(t *testin
 	}
 }
 
+func TestNonTeamDataRequestFallsThroughWithBodyPreserved(t *testing.T) {
+	s, _ := teamTestServer(t)
+	body := []byte(`{"model":"auto/smart","messages":[{"role":"user","content":"hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	if s.dispatchTeamAdmin(rr, req) {
+		t.Fatal("ordinary RC8 data request was intercepted by Team Routing")
+	}
+	restored, err := io.ReadAll(req.Body)
+	if err != nil || !bytes.Equal(restored, body) {
+		t.Fatalf("request body was not restored: err=%v got=%s", err, restored)
+	}
+}
+
+func TestTeamDataRequiresDataKeyAndExecutionOptIn(t *testing.T) {
+	s, _ := teamTestServer(t)
+	body := []byte(`{"model":"team/smart","stream":false,"messages":[{"role":"user","content":"summarize this"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	if !s.dispatchTeamAdmin(rr, req) || rr.Code != http.StatusUnauthorized {
+		t.Fatalf("team data auth was not enforced: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	dataKey := s.Config.Get().DataAPIKey
+	req = httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+dataKey)
+	rr = httptest.NewRecorder()
+	if !s.dispatchTeamAdmin(rr, req) || rr.Code != http.StatusConflict || !bytes.Contains(rr.Body.Bytes(), []byte("team_execution_disabled")) {
+		t.Fatalf("execution did not fail closed by default: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestTeamReviewParsing(t *testing.T) {
+	approve := []byte(`{"choices":[{"message":{"content":"{\"verdict\":\"approve\",\"summary\":\"looks good\"}"}}]}`)
+	got := parseTeamReview(approve)
+	if got.Verdict != "approve" || got.Summary != "looks good" {
+		t.Fatalf("review parse failed: %+v", got)
+	}
+	concern := []byte(`{"choices":[{"message":{"content":"I have concerns about correctness"}}]}`)
+	if got := parseTeamReview(concern); got.Verdict != "concerns" {
+		t.Fatalf("concern fallback parse failed: %+v", got)
+	}
+}
+
 func TestRemoteGuardAppliesBeforeTeamDispatcher(t *testing.T) {
 	s, admin := teamTestServer(t)
 	fallbackCalled := false
@@ -72,6 +116,16 @@ func TestRemoteGuardAppliesBeforeTeamDispatcher(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden || fallbackCalled {
 		t.Fatalf("remote policy bypassed: status=%d fallback=%v", rr.Code, fallbackCalled)
+	}
+
+	teamBody := []byte(`{"model":"team/smart","stream":false,"messages":[{"role":"user","content":"hello"}]}`)
+	req = httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(teamBody))
+	req.RemoteAddr = "203.0.113.9:1234"
+	req.Header.Set("Authorization", "Bearer "+s.Config.Get().DataAPIKey)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden || fallbackCalled {
+		t.Fatalf("remote policy bypassed for team data: status=%d fallback=%v", rr.Code, fallbackCalled)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "http://localhost/bridge/orchestration", nil)
