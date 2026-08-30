@@ -13,9 +13,10 @@ import (
 const configDocument = "team-routing.json"
 
 type Config struct {
-	Enabled  bool               `json:"enabled"`
-	Policy   Policy             `json:"policy"`
-	Profiles map[string]Profile `json:"profiles"`
+	Enabled   bool               `json:"enabled"`
+	Policy    Policy             `json:"policy"`
+	Execution ExecutionConfig    `json:"execution"`
+	Profiles  map[string]Profile `json:"profiles"`
 }
 
 type Service struct {
@@ -35,8 +36,64 @@ func DefaultConfig() Config {
 			MaxAssistants:           1,
 			AllowCriticalReserveUse: false,
 		},
+		Execution: ExecutionConfig{
+			Enabled:                 false,
+			MaxCalls:                3,
+			MaxWallTimeSeconds:      90,
+			MaxInputBytes:           8 << 20,
+			MaxResponseBytes:        8 << 20,
+			MaxReviewBytes:          512 << 10,
+			MaxEstimatedCostUSD:     0,
+			RequireKnownCost:        false,
+			RunAssistants:           false,
+			BlockOnReviewConcernsAt: "critical",
+		},
 		Profiles: map[string]Profile{},
 	}
+}
+
+func normalizeExecution(x ExecutionConfig) (ExecutionConfig, error) {
+	if x.MaxCalls == 0 {
+		x.MaxCalls = 3
+	}
+	if x.MaxCalls < 1 || x.MaxCalls > 6 {
+		return ExecutionConfig{}, errors.New("execution.max_calls must be between 1 and 6")
+	}
+	if x.MaxWallTimeSeconds == 0 {
+		x.MaxWallTimeSeconds = 90
+	}
+	if x.MaxWallTimeSeconds < 5 || x.MaxWallTimeSeconds > 300 {
+		return ExecutionConfig{}, errors.New("execution.max_wall_time_seconds must be between 5 and 300")
+	}
+	if x.MaxInputBytes == 0 {
+		x.MaxInputBytes = 8 << 20
+	}
+	if x.MaxInputBytes < 1024 || x.MaxInputBytes > 32<<20 {
+		return ExecutionConfig{}, errors.New("execution.max_input_bytes must be between 1024 and 33554432")
+	}
+	if x.MaxResponseBytes == 0 {
+		x.MaxResponseBytes = 8 << 20
+	}
+	if x.MaxResponseBytes < 1024 || x.MaxResponseBytes > 32<<20 {
+		return ExecutionConfig{}, errors.New("execution.max_response_bytes must be between 1024 and 33554432")
+	}
+	if x.MaxReviewBytes == 0 {
+		x.MaxReviewBytes = 512 << 10
+	}
+	if x.MaxReviewBytes < 1024 || x.MaxReviewBytes > 2<<20 {
+		return ExecutionConfig{}, errors.New("execution.max_review_bytes must be between 1024 and 2097152")
+	}
+	if x.MaxEstimatedCostUSD < 0 || x.MaxEstimatedCostUSD > 1000 {
+		return ExecutionConfig{}, errors.New("execution.max_estimated_cost_usd must be between 0 and 1000")
+	}
+	if strings.TrimSpace(x.BlockOnReviewConcernsAt) == "" {
+		x.BlockOnReviewConcernsAt = "critical"
+	}
+	if !validRisk(x.BlockOnReviewConcernsAt) {
+		return ExecutionConfig{}, errors.New("execution.block_on_review_concerns_at must be low, medium, high, or critical")
+	}
+	x.BlockOnReviewConcernsAt = normalizedRisk(x.BlockOnReviewConcernsAt)
+	return x, nil
 }
 
 func normalizeConfig(c Config) (Config, error) {
@@ -60,6 +117,14 @@ func normalizeConfig(c Config) (Config, error) {
 		return Config{}, errors.New("max_assistants must be between 0 and 4")
 	}
 	c.Policy.Enabled = c.Enabled
+	execution, err := normalizeExecution(c.Execution)
+	if err != nil {
+		return Config{}, err
+	}
+	if !c.Enabled {
+		execution.Enabled = false
+	}
+	c.Execution = execution
 	out := make(map[string]Profile, len(c.Profiles))
 	for key, p := range c.Profiles {
 		key = strings.TrimSpace(key)
