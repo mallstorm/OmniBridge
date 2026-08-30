@@ -9,18 +9,18 @@ import (
 // use Team Routing dry-run/planning without allowing any additional upstream
 // calls. Zero values are normalized by the persistence service.
 type ExecutionConfig struct {
-	Enabled                     bool    `json:"enabled"`
-	MaxCalls                    int     `json:"max_calls,omitempty"`
-	MaxWallTimeSeconds          int     `json:"max_wall_time_seconds,omitempty"`
-	MaxInputBytes               int64   `json:"max_input_bytes,omitempty"`
-	MaxResponseBytes            int64   `json:"max_response_bytes,omitempty"`
-	MaxReviewBytes              int64   `json:"max_review_bytes,omitempty"`
-	MaxEstimatedCostUSD         float64 `json:"max_estimated_cost_usd,omitempty"`
-	RequireKnownCost            bool    `json:"require_known_cost,omitempty"`
-	RunAssistants               bool    `json:"run_assistants,omitempty"`
-	AllowCrossProviderReview    bool    `json:"allow_cross_provider_review,omitempty"`
-	AllowCrossProviderAssistants bool   `json:"allow_cross_provider_assistants,omitempty"`
-	BlockOnReviewConcernsAt     string  `json:"block_on_review_concerns_at,omitempty"`
+	Enabled                      bool    `json:"enabled"`
+	MaxCalls                     int     `json:"max_calls,omitempty"`
+	MaxWallTimeSeconds           int     `json:"max_wall_time_seconds,omitempty"`
+	MaxInputBytes                int64   `json:"max_input_bytes,omitempty"`
+	MaxResponseBytes             int64   `json:"max_response_bytes,omitempty"`
+	MaxReviewBytes               int64   `json:"max_review_bytes,omitempty"`
+	MaxEstimatedCostUSD          float64 `json:"max_estimated_cost_usd,omitempty"`
+	RequireKnownCost             bool    `json:"require_known_cost,omitempty"`
+	RunAssistants                bool    `json:"run_assistants,omitempty"`
+	AllowCrossProviderReview     bool    `json:"allow_cross_provider_review,omitempty"`
+	AllowCrossProviderAssistants bool    `json:"allow_cross_provider_assistants,omitempty"`
+	BlockOnReviewConcernsAt      string  `json:"block_on_review_concerns_at,omitempty"`
 }
 
 // ValidateAssignment reuses exactly the same role/risk/quota gates as planning.
