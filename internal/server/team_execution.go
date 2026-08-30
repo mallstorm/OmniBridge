@@ -12,12 +12,15 @@ import (
 	"time"
 
 	"omnibridge/internal/adaptive"
+	"omnibridge/internal/observability"
 	"omnibridge/internal/orchestration"
 	"omnibridge/internal/protocol"
 	"omnibridge/internal/providers"
 	"omnibridge/internal/resilience"
 	obr "omnibridge/internal/router"
 )
+
+const teamChatCompletions = "chat-completions"
 
 var teamVirtualModels = []string{
 	"team/smart",
@@ -61,7 +64,7 @@ func teamRouteTaskType(route string) string {
 func teamAPIType(path string) string {
 	switch path {
 	case "/v1/chat/completions":
-		return protocol.ChatCompletions
+		return teamChatCompletions
 	case "/v1/responses":
 		return protocol.Responses
 	case "/v1/messages":
@@ -224,7 +227,7 @@ func teamAssistantRequest(modelID, taskText string) []byte {
 }
 
 func teamInjectAssistantNotes(raw []byte, apiType string, notes []string) []byte {
-	if len(notes) == 0 || apiType != protocol.ChatCompletions {
+	if len(notes) == 0 || apiType != teamChatCompletions {
 		return raw
 	}
 	var v map[string]any
@@ -499,7 +502,7 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 		return
 	}
 	assistantAssignments := []orchestration.Assignment{}
-	if cfg.Execution.RunAssistants && task.DelegationAllowed && !req.ToolCalling && !req.AgentMode && apiType == protocol.ChatCompletions {
+	if cfg.Execution.RunAssistants && task.DelegationAllowed && !req.ToolCalling && !req.AgentMode && apiType == teamChatCompletions {
 		room := cfg.Execution.MaxCalls - reservedCalls
 		for i := 0; i < len(plan.Assistants) && i < room; i++ {
 			assistantAssignments = append(assistantAssignments, plan.Assistants[i])
@@ -537,7 +540,7 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 		if err != nil {
 			continue // assistants are optional; dispatch-time drift simply removes them.
 		}
-		res, err := s.teamPhysicalCall(ctx, route, m, protocol.ChatCompletions, teamAssistantRequest(m.ID, taskText), cfg.Execution.MaxReviewBytes)
+		res, err := s.teamPhysicalCall(ctx, route, m, teamChatCompletions, teamAssistantRequest(m.ID, taskText), cfg.Execution.MaxReviewBytes)
 		calls++
 		if err != nil {
 			continue
@@ -593,7 +596,7 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 		}
 		reviewerID = reviewerModel.ID
 		reviewReq := teamReviewRequest(reviewerModel.ID, task, taskText, lead, cfg.Execution.MaxReviewBytes)
-		reviewCall, err := s.teamPhysicalCall(ctx, route, reviewerModel, protocol.ChatCompletions, reviewReq, cfg.Execution.MaxReviewBytes)
+		reviewCall, err := s.teamPhysicalCall(ctx, route, reviewerModel, teamChatCompletions, reviewReq, cfg.Execution.MaxReviewBytes)
 		calls++
 		if err != nil {
 			status := http.StatusBadGateway
@@ -648,7 +651,16 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 	w.Header().Set("X-OmniBridge-Dedup-Hit", "false")
 	exposed := w.Header().Get("Access-Control-Expose-Headers")
 	w.Header().Set("Access-Control-Expose-Headers", strings.Trim(strings.Join([]string{exposed, "X-OmniBridge-Team-Route, X-OmniBridge-Team-Lead, X-OmniBridge-Team-Reviewer, X-OmniBridge-Team-Review, X-OmniBridge-Team-Calls"}, ", "), ", "))
-	annotateTrace(r.Context(), func(tr interface{ }) {})
+	annotateTrace(r.Context(), func(tr *observability.Trace) {
+		tr.SelectedModel = lead.Model.ID
+		tr.Provider = lead.Model.ProviderID
+		tr.Attempts = calls
+		tr.Attributes["team_route"] = route
+		tr.Attributes["team_task_type"] = task.Type
+		tr.Attributes["team_risk"] = task.Risk
+		tr.Attributes["team_reviewer"] = reviewerID
+		tr.Attributes["team_review_verdict"] = review.Verdict
+	})
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
 }
