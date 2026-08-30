@@ -70,7 +70,21 @@ func TestNonTeamDataRequestFallsThroughWithBodyPreserved(t *testing.T) {
 	}
 	restored, err := io.ReadAll(req.Body)
 	if err != nil || !bytes.Equal(restored, body) {
-		t.Fatalf("request body was not restored: err=%v got=%s", err, restored)
+		t.Fatalf("request body was touched without Team execution header: err=%v got=%s", err, restored)
+	}
+}
+
+func TestTeamModelWithoutExecutionHeaderFallsThroughUntouched(t *testing.T) {
+	s, _ := teamTestServer(t)
+	body := []byte(`{"model":"team/smart","stream":false,"messages":[{"role":"user","content":"summarize this"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	if s.dispatchTeamAdmin(rr, req) {
+		t.Fatal("team model was executed without explicit per-request header")
+	}
+	restored, _ := io.ReadAll(req.Body)
+	if !bytes.Equal(restored, body) {
+		t.Fatalf("team body changed without opt-in: %s", restored)
 	}
 }
 
@@ -78,13 +92,15 @@ func TestTeamDataRequiresDataKeyAndExecutionOptIn(t *testing.T) {
 	s, _ := teamTestServer(t)
 	body := []byte(`{"model":"team/smart","stream":false,"messages":[{"role":"user","content":"summarize this"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("X-OmniBridge-Team-Execute", "true")
 	rr := httptest.NewRecorder()
 	if !s.dispatchTeamAdmin(rr, req) || rr.Code != http.StatusUnauthorized {
-		t.Fatalf("team data auth was not enforced: status=%d body=%s", rr.Code, rr.Body.String())
+		t.Fatalf("team data auth was not enforced before body dispatch: status=%d body=%s", rr.Code, rr.Body.String())
 	}
 
 	dataKey := s.Config.Get().DataAPIKey
 	req = httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("X-OmniBridge-Team-Execute", "true")
 	req.Header.Set("Authorization", "Bearer "+dataKey)
 	rr = httptest.NewRecorder()
 	if !s.dispatchTeamAdmin(rr, req) || rr.Code != http.StatusConflict || !bytes.Contains(rr.Body.Bytes(), []byte("team_execution_disabled")) {
@@ -121,6 +137,7 @@ func TestRemoteGuardAppliesBeforeTeamDispatcher(t *testing.T) {
 	teamBody := []byte(`{"model":"team/smart","stream":false,"messages":[{"role":"user","content":"hello"}]}`)
 	req = httptest.NewRequest(http.MethodPost, "http://localhost/v1/chat/completions", bytes.NewReader(teamBody))
 	req.RemoteAddr = "203.0.113.9:1234"
+	req.Header.Set("X-OmniBridge-Team-Execute", "true")
 	req.Header.Set("Authorization", "Bearer "+s.Config.Get().DataAPIKey)
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
