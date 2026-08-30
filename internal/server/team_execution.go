@@ -488,7 +488,7 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 
 	candidates, profileSources := s.teamCandidates(req)
 	plan := svc.Engine().Plan(task, candidates, cfg.Policy)
-	plan = orchestration.PreferIndependentReviewer(plan, candidates, cfg.Policy)
+	plan = orchestration.ApplyReviewerProviderPolicy(plan, candidates, cfg.Policy, cfg.Execution.AllowCrossProviderReview)
 	if !plan.Valid || plan.Lead == nil {
 		teamWriteError(w, http.StatusUnprocessableEntity, "team_plan_invalid", "no valid bounded Team Routing plan", map[string]any{"plan": plan, "profile_sources": profileSources})
 		return
@@ -504,8 +504,14 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 	assistantAssignments := []orchestration.Assignment{}
 	if cfg.Execution.RunAssistants && task.DelegationAllowed && !req.ToolCalling && !req.AgentMode && apiType == teamChatCompletions {
 		room := cfg.Execution.MaxCalls - reservedCalls
-		for i := 0; i < len(plan.Assistants) && i < room; i++ {
-			assistantAssignments = append(assistantAssignments, plan.Assistants[i])
+		for _, a := range plan.Assistants {
+			if len(assistantAssignments) >= room {
+				break
+			}
+			if !cfg.Execution.AllowCrossProviderAssistants && a.ProviderID != plan.Lead.ProviderID {
+				continue
+			}
+			assistantAssignments = append(assistantAssignments, a)
 		}
 	}
 	assistantIDs := make([]string, 0, len(assistantAssignments))
@@ -619,21 +625,23 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 	}
 
 	metadata := map[string]any{
-		"version": orchestration.Version,
-		"route": route,
-		"task_type": task.Type,
-		"risk": task.Risk,
-		"lead": leadModel.ID,
-		"assistant_models": assistantModels,
-		"reviewer": reviewerID,
-		"review_verdict": review.Verdict,
-		"calls": calls,
-		"max_calls": cfg.Execution.MaxCalls,
-		"estimated_cost_usd": estimatedCost,
-		"estimated_cost_fully_known": costKnown,
-		"actual_cost_usd": actualCost,
-		"actual_cost_fully_known": actualCostKnown,
-		"context_mode": contextReport.Mode,
+		"version":                      orchestration.Version,
+		"route":                        route,
+		"task_type":                    task.Type,
+		"risk":                         task.Risk,
+		"lead":                         leadModel.ID,
+		"assistant_models":             assistantModels,
+		"reviewer":                     reviewerID,
+		"review_verdict":               review.Verdict,
+		"calls":                        calls,
+		"max_calls":                    cfg.Execution.MaxCalls,
+		"estimated_cost_usd":           estimatedCost,
+		"estimated_cost_fully_known":   costKnown,
+		"actual_cost_usd":              actualCost,
+		"actual_cost_fully_known":      actualCostKnown,
+		"context_mode":                 contextReport.Mode,
+		"cross_provider_review":        cfg.Execution.AllowCrossProviderReview,
+		"cross_provider_assistants":    cfg.Execution.AllowCrossProviderAssistants,
 	}
 	if review.Summary != "" {
 		metadata["review_summary"] = review.Summary
@@ -660,6 +668,8 @@ func (s *Server) teamExecute(w http.ResponseWriter, r *http.Request, apiType str
 		tr.Attributes["team_risk"] = task.Risk
 		tr.Attributes["team_reviewer"] = reviewerID
 		tr.Attributes["team_review_verdict"] = review.Verdict
+		tr.Attributes["team_cross_provider_review"] = cfg.Execution.AllowCrossProviderReview
+		tr.Attributes["team_cross_provider_assistants"] = cfg.Execution.AllowCrossProviderAssistants
 	})
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
