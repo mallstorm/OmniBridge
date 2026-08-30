@@ -223,7 +223,8 @@ func (m *Manager) Snapshot() map[string]any {
 		list = append(list, e)
 	}
 	active := len(m.flights)
+	cfg := m.cfg
 	m.mu.Unlock()
 	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt.After(list[j].CreatedAt) })
-	return map[string]any{"version": Version, "config": m.cfg, "entries": len(list), "active_deduplications": active, "hits": m.hits.Load(), "misses": m.misses.Load(), "dedup_waits": m.dedupWaits.Load(), "recent": list}
+	return map[string]any{"version": Version, "config": cfg, "entries": len(list), "active_deduplications": active, "hits": m.hits.Load(), "misses": m.misses.Load(), "dedup_waits": m.dedupWaits.Load(), "recent": list}
 }
