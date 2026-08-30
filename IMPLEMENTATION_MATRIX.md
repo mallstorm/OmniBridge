@@ -1,4 +1,4 @@
-# OmniBridge 1.0.0-rc6 — дорожная карта поколения 1.0
+# OmniBridge 1.0.0-rc8 — дорожная карта поколения 1.0
 
 | Этап | Статус | Результат |
 |---|---|---|
@@ -19,6 +19,14 @@
 | 15. 1.0 Release Engineering | **Выполнен в 1.0.0-rc1; RC2 integration patch** | release metadata, package verifier, readiness gate, version-aware install/update rollback, corruption fail-closed, VS Code Custom Endpoint picker/export hardening |
 | 16. Yandex + Stability hardening | **Выполнен в 1.0.0-rc5** | Native Yandex AI Studio, Api-Key + Folder ID, Responses/Chat, cached-token telemetry, overload limits, panic isolation, batched statistics |
 | 17. Yandex/VS Code + Release hardening | **Выполнен в 1.0.0-rc6** | Канонические Yandex URI/имена, фильтр chat-моделей для VS Code, UI `$PID` fix, version consistency, Windows SQLite REAL fix |
+| 18. Verified Models & Identity | **Выполнен в 1.0.0-rc7** | Chat/Identity verification, physical upstream ID, verified VS Code export, identity envelope и response metadata |
+| 19. Adaptive Routing & Explainability | **Выполнен в 1.0.0-rc8** | EWMA quality/confidence, bounded outcomes, route decision trace, explain API, Health Autopilot |
+| 20. Quota & Efficiency Intelligence | **Выполнен в 1.0.0-rc8** | GigaChat token singleflight, quota-share/burn forecast, generation dedup, Exact Response Cache |
+| 21. Safe Extensibility | **Выполнен в 1.0.0-rc8** | Safe Context Optimizer, models.dev reference sync, signed data-only provider packs, VS Code self-test |
+
+## Этапы 19–21 — Adaptive Intelligence
+
+`1.0.0-rc8` добавляет эксплуатационную обратную связь, не ослабляя RC7 Doctor/identity gates. Adaptive score является только мягким коэффициентом; auth, quota, breaker, capability, context и Doctor остаются жёсткими ограничениями. Подробности: `docs/RC8_ADAPTIVE_INTELLIGENCE_RU.md`.
 
 ## Этап 17 — Yandex/VS Code + Release hardening
 

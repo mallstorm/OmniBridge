@@ -1,8 +1,22 @@
-# OmniBridge 1.0.0-rc6 — Release Report
+# OmniBridge 1.0.0-rc8 — Release Report
 
 ## Назначение
 
-RC6 развивает подтверждённую базу `1.0.0-rc5`: исправляет идентификацию Yandex-моделей в discovery, маршрутизации и VS Code, устраняет XAML/manifest version drift и исправляет Windows-специфичное чтение SQLite `REAL`. Визуальное лицо WPF/PowerShell UI 3.0 и Tray не менялось.
+RC8 развивает проверенную базу RC7: сохраняет физическую identity и Doctor gates, добавляет адаптивное качество маршрута, объяснение выбора, Health Autopilot, quota intelligence, безопасную экономию контекста и контролируемое расширение каталога.
+
+## RC8
+
+- bounded async outcomes и EWMA success/latency/TTFT с confidence;
+- `Route Decision Trace` и `/bridge/router/explain` без prompt/secret payload;
+- Health Autopilot с dry-run и `preconditions_hash`;
+- GigaChat OAuth refresh singleflight и сохранённый bounded 401 retry;
+- `quota_share`, burn rate и predicted exhaustion;
+- Exact Response Cache и generation dedup только для deterministic non-stream no-tools запросов;
+- Context Optimizer `observe/safe/balanced/experimental`, fail-open и protected code/schema blocks;
+- models.dev только как `declared` reference metadata;
+- Ed25519 data-only provider packs без выполнения внешнего кода;
+- фактический VS Code self-test для ChatVerified модели;
+- Config schema 6, SQLite schema 4, Windows manifest `1.0.0.8`.
 
 ## RC6
 

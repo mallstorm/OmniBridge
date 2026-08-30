@@ -36,7 +36,7 @@ try{
     # Release-candidate metadata is regenerated at build time so the package is self-describing.
     $releaseMeta=[ordered]@{
         product='OmniBridge';version=$version;channel='rc';release_train='1.0';
-        config_schema=5;db_schema=3;protocol_engine='3.1';router_runtime='3.1';
+        config_schema=6;db_schema=4;protocol_engine='3.1';router_runtime='3.1-adaptive';
         minimum_supported_upgrade='0.3.2-rc6';built_at_utc=(Get-Date).ToUniversalTime().ToString('o')
     }
     $releaseMeta|ConvertTo-Json -Depth 4|Set-Content -Encoding UTF8 -LiteralPath (Join-Path $package 'RELEASE.json')

@@ -1,7 +1,7 @@
-OmniBridge 1.0.0-rc6 — VALIDATION REPORT
+OmniBridge 1.0.0-rc8 — VALIDATION REPORT
 =========================================
-Audit date: 2026-08-29
-Scope: full source archive, RC6 Yandex/VS Code changes, release consistency, GitHub baseline
+Audit date: 2026-08-30
+Scope: RC8 Adaptive Intelligence, RC7 identity preservation, release consistency, Windows x64 build
 
 ARCHIVE
 [PASS] ZIP integrity/CRC: 386 entries
@@ -10,9 +10,9 @@ ARCHIVE
 [PASS] source tree extracted completely
 
 VERSION / RELEASE
-[PASS] Core/VERSION.txt/RELEASE.json: 1.0.0-rc6
-[PASS] static XAML fallback version: 1.0.0-rc6
-[PASS] Windows assembly manifest version: 1.0.0.6
+[PASS] Core/VERSION.txt/RELEASE.json: 1.0.0-rc8
+[PASS] static XAML fallback version: 1.0.0-rc8
+[PASS] Windows assembly manifest version: 1.0.0.8
 [PASS] automated release-version consistency test added
 [PASS] stale root SHA256SUMS regenerated after audit
 
@@ -36,8 +36,8 @@ PROVIDER / UI STATIC VALIDATION
 
 GITHUB
 [PASS] authenticated repository identified: mallstorm/OmniBridge
-[PASS] repository baseline is 1.0.0-rc5 and therefore older than this source
-[PASS] newer artifact-retention CI commits identified and preserved during RC6 overlay
+[PASS] repository baseline commit: 436eec3ade8b705b0687c0698efd230b9a25e473 (RC7)
+[PASS] RC7 identity and artifact-retention behavior preserved
 [PASS] GitHub Actions Windows: formatting, resource regeneration, Go tests, vet, UI validation and release ZIP build
 [WARN] GitHub artifact upload quota exhausted; upload is best-effort until GitHub recalculates storage
 

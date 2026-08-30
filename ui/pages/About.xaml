@@ -18,7 +18,7 @@
                     <TextBlock Text="OmniBridge" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource HeadingBrush}" Margin="0,19,0,0"/>
                     <TextBlock Text="Universal AI Gateway" FontSize="14" Foreground="{StaticResource Text2Brush}" Margin="0,5,0,0"/>
                     <Border Background="#211448" BorderBrush="#5734A7" BorderThickness="1" CornerRadius="6" Padding="10,5" Margin="0,15,0,0">
-                        <TextBlock x:Name="AboutVersion" Text="Версия 1.0.0-rc7" FontSize="10.5" Foreground="#C9B6FF"/>
+                        <TextBlock x:Name="AboutVersion" Text="Версия 1.0.0-rc8" FontSize="10.5" Foreground="#C9B6FF"/>
                     </Border>
                     <TextBlock Text="Один локальный endpoint для облачных, account-based и локальных AI-моделей." TextAlignment="Center" TextWrapping="Wrap" Width="360" Style="{StaticResource PageSubtitle}" Margin="0,18,0,0"/>
                 </StackPanel>

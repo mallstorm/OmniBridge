@@ -11,35 +11,38 @@ import (
 // Candidate is the routing-only projection of a registry model. The router package
 // deliberately does not import providers/stats/resilience so it stays reusable.
 type Candidate struct {
-	ID               string  `json:"id"`
-	ProviderID       string  `json:"provider_id,omitempty"`
-	NativeID         string  `json:"native_id,omitempty"`
-	Source           string  `json:"source,omitempty"`
-	Local            bool    `json:"local,omitempty"`
-	AgentReady       bool    `json:"agent_ready,omitempty"`
-	ToolCalling      bool    `json:"tool_calling,omitempty"`
-	ParallelTools    bool    `json:"parallel_tools,omitempty"`
-	StructuredOutput bool    `json:"structured_output,omitempty"`
-	SystemPrompt     bool    `json:"system_prompt,omitempty"`
-	Reasoning        bool    `json:"reasoning,omitempty"`
-	Vision           bool    `json:"vision,omitempty"`
-	Streaming        bool    `json:"streaming,omitempty"`
-	ContextWindow    int     `json:"context_window,omitempty"`
-	MaxOutputTokens  int     `json:"max_output_tokens,omitempty"`
-	DoctorVerified   bool    `json:"doctor_verified,omitempty"`
-	DoctorScore      float64 `json:"doctor_score,omitempty"`
-	AgentScore       float64 `json:"agent_score,omitempty"`
-	CodingScore      float64 `json:"coding_score,omitempty"`
-	ReliabilityScore float64 `json:"doctor_reliability_score,omitempty"`
-	HealthRank       int     `json:"health_rank"`
-	Requests24h      int64   `json:"requests_24h"`
-	SuccessRate      float64 `json:"success_rate,omitempty"`
-	AverageLatencyMS float64 `json:"average_latency_ms,omitempty"`
-	P95LatencyMS     int64   `json:"p95_latency_ms,omitempty"`
-	QuotaRemaining   float64 `json:"quota_remaining,omitempty"`
-	QuotaKnown       bool    `json:"quota_known,omitempty"`
-	CostPerMTokens   float64 `json:"cost_per_m_tokens,omitempty"`
-	CostKnown        bool    `json:"cost_known,omitempty"`
+	ID                 string  `json:"id"`
+	ProviderID         string  `json:"provider_id,omitempty"`
+	NativeID           string  `json:"native_id,omitempty"`
+	Source             string  `json:"source,omitempty"`
+	Local              bool    `json:"local,omitempty"`
+	AgentReady         bool    `json:"agent_ready,omitempty"`
+	ToolCalling        bool    `json:"tool_calling,omitempty"`
+	ParallelTools      bool    `json:"parallel_tools,omitempty"`
+	StructuredOutput   bool    `json:"structured_output,omitempty"`
+	SystemPrompt       bool    `json:"system_prompt,omitempty"`
+	Reasoning          bool    `json:"reasoning,omitempty"`
+	Vision             bool    `json:"vision,omitempty"`
+	Streaming          bool    `json:"streaming,omitempty"`
+	ContextWindow      int     `json:"context_window,omitempty"`
+	MaxOutputTokens    int     `json:"max_output_tokens,omitempty"`
+	DoctorVerified     bool    `json:"doctor_verified,omitempty"`
+	DoctorScore        float64 `json:"doctor_score,omitempty"`
+	AgentScore         float64 `json:"agent_score,omitempty"`
+	CodingScore        float64 `json:"coding_score,omitempty"`
+	ReliabilityScore   float64 `json:"doctor_reliability_score,omitempty"`
+	HealthRank         int     `json:"health_rank"`
+	Requests24h        int64   `json:"requests_24h"`
+	SuccessRate        float64 `json:"success_rate,omitempty"`
+	AverageLatencyMS   float64 `json:"average_latency_ms,omitempty"`
+	P95LatencyMS       int64   `json:"p95_latency_ms,omitempty"`
+	QuotaRemaining     float64 `json:"quota_remaining,omitempty"`
+	QuotaKnown         bool    `json:"quota_known,omitempty"`
+	CostPerMTokens     float64 `json:"cost_per_m_tokens,omitempty"`
+	CostKnown          bool    `json:"cost_known,omitempty"`
+	AdaptiveQuality    float64 `json:"adaptive_quality,omitempty"`
+	AdaptiveConfidence float64 `json:"adaptive_confidence,omitempty"`
+	AdaptiveWeight     float64 `json:"adaptive_weight,omitempty"`
 }
 
 type Options struct {
@@ -365,6 +368,26 @@ func quotaOptimized(in []Candidate) []Candidate {
 	return out
 }
 
+func quotaShare(in []Candidate) []Candidate {
+	out := quotaOptimized(in)
+	// Smoothly spread traffic across connections with usable quota instead of
+	// draining the largest bucket first. Stable secondary ordering preserves
+	// operator candidate order when effective shares are equal.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].HealthRank != out[j].HealthRank {
+			return out[i].HealthRank < out[j].HealthRank
+		}
+		if out[i].QuotaKnown != out[j].QuotaKnown {
+			return out[i].QuotaKnown
+		}
+		if out[i].QuotaKnown && out[i].QuotaRemaining != out[j].QuotaRemaining {
+			return out[i].QuotaRemaining > out[j].QuotaRemaining
+		}
+		return loadValue(out[i]) < loadValue(out[j])
+	})
+	return out
+}
+
 func costOptimized(in []Candidate) []Candidate {
 	out := append([]Candidate(nil), in...)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -535,6 +558,16 @@ func ScoreCandidateForRequest(c Candidate, profile string, req Requirements) Sco
 	}
 	components["coding_score"] = coding
 
+	adaptive := 0.0
+	if c.AdaptiveConfidence > 0 {
+		weight := c.AdaptiveWeight
+		if weight <= 0 {
+			weight = 32
+		}
+		adaptive = (c.AdaptiveQuality - .5) * 2 * weight * c.AdaptiveConfidence
+	}
+	components["adaptive_quality"] = adaptive
+
 	total := 0.0
 	for _, v := range components {
 		total += v
@@ -580,6 +613,8 @@ func (e *Engine) Order(in []Candidate, opts Options) []Candidate {
 		out = p2c(in, seq)
 	case "quota_optimized":
 		out = quotaOptimized(in)
+	case "quota_share":
+		out = quotaShare(in)
 	case "cost_optimized":
 		out = costOptimized(in)
 	case "auto":

@@ -43,4 +43,13 @@ var migrations = map[int][]string{
 		`CREATE INDEX IF NOT EXISTS idx_traces_started ON request_traces(started_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_traces_model ON request_traces(model,started_at);`,
 	},
+	4: {
+		`CREATE TABLE IF NOT EXISTS routing_quality(provider_id TEXT NOT NULL, connection_id TEXT NOT NULL, model_id TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(provider_id,connection_id,model_id));`,
+		`CREATE INDEX IF NOT EXISTS idx_routing_quality_updated ON routing_quality(updated_at);`,
+		`CREATE TABLE IF NOT EXISTS route_decisions(trace_id TEXT PRIMARY KEY, at TEXT NOT NULL, payload TEXT NOT NULL);`,
+		`CREATE INDEX IF NOT EXISTS idx_route_decisions_at ON route_decisions(at);`,
+		`CREATE TABLE IF NOT EXISTS exact_response_cache(signature TEXT PRIMARY KEY, namespace_hash TEXT NOT NULL, provider_id TEXT NOT NULL, model_id TEXT NOT NULL, identity_version TEXT NOT NULL, expires_at TEXT NOT NULL, payload BLOB NOT NULL);`,
+		`CREATE INDEX IF NOT EXISTS idx_exact_cache_expiry ON exact_response_cache(expires_at);`,
+		`CREATE TABLE IF NOT EXISTS catalog_metadata(provider_id TEXT NOT NULL, model_id TEXT NOT NULL, source TEXT NOT NULL, confidence TEXT NOT NULL DEFAULT 'declared', updated_at TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(provider_id,model_id,source));`,
+	},
 }

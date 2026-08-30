@@ -12,17 +12,19 @@ import (
 const Version = "1.0"
 
 type Report struct {
-	Version         string `json:"version"`
-	Enabled         bool   `json:"enabled"`
-	Mode            string `json:"mode"`
-	ContextWindow   int    `json:"context_window,omitempty"`
-	TargetTokens    int64  `json:"target_tokens,omitempty"`
-	BeforeTokens    int64  `json:"before_tokens"`
-	AfterTokens     int64  `json:"after_tokens"`
-	SavedTokens     int64  `json:"saved_tokens"`
-	RemovedMessages int    `json:"removed_messages,omitempty"`
-	Action          string `json:"action"`
-	Reason          string `json:"reason,omitempty"`
+	Version           string `json:"version"`
+	Enabled           bool   `json:"enabled"`
+	Mode              string `json:"mode"`
+	ContextWindow     int    `json:"context_window,omitempty"`
+	TargetTokens      int64  `json:"target_tokens,omitempty"`
+	BeforeTokens      int64  `json:"before_tokens"`
+	AfterTokens       int64  `json:"after_tokens"`
+	SavedTokens       int64  `json:"saved_tokens"`
+	RemovedMessages   int    `json:"removed_messages,omitempty"`
+	DuplicateMessages int    `json:"duplicate_messages,omitempty"`
+	ProtectedMessages int    `json:"protected_messages,omitempty"`
+	Action            string `json:"action"`
+	Reason            string `json:"reason,omitempty"`
 }
 
 func estimateString(s string) int64 {
@@ -78,10 +80,30 @@ func messageRole(m map[string]any) string {
 }
 func protectedRole(role string) bool { return role == "system" || role == "developer" }
 
-func compactMessageArray(root map[string]any, key string, target int64, minRecent int) (removed int) {
+func messageContent(m map[string]any) string { s, _ := m["content"].(string); return s }
+func structurallyProtected(m map[string]any) bool {
+	role := messageRole(m)
+	if protectedRole(role) {
+		return true
+	}
+	content := strings.TrimSpace(messageContent(m))
+	if content == "" {
+		return false
+	}
+	markers := []string{"```", "@@ ", "diff --git", "{\n", "[\n", "traceback (most recent call last)", " at ", "powershell", "#!/", "select ", "insert ", "update ", "delete ", "regexp", "regex"}
+	lower := strings.ToLower(content)
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactMessageArray(root map[string]any, key string, target int64, minRecent int) (removed, duplicates, protected int) {
 	arr, ok := root[key].([]any)
 	if !ok || len(arr) <= minRecent {
-		return 0
+		return 0, 0, 0
 	}
 	// Keep all system/developer messages and the latest minRecent conversation turns.
 	keepFrom := len(arr) - minRecent
@@ -90,17 +112,30 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 	}
 	kept := make([]any, 0, len(arr))
 	removedCount := 0
+	seen := map[string]bool{}
 	for i, item := range arr {
 		m, _ := item.(map[string]any)
 		role := messageRole(m)
-		if i >= keepFrom || protectedRole(role) {
+		if structurallyProtected(m) {
+			protected++
+		}
+		fingerprint := role + "\x00" + messageContent(m)
+		duplicate := i < keepFrom && fingerprint != "\x00" && seen[fingerprint]
+		removableTool := i < keepFrom && role == "tool" && !structurallyProtected(m)
+		if i >= keepFrom || structurallyProtected(m) || (!duplicate && !removableTool) {
 			kept = append(kept, item)
+			if fingerprint != "\x00" {
+				seen[fingerprint] = true
+			}
 			continue
+		}
+		if duplicate {
+			duplicates++
 		}
 		removedCount++
 	}
 	if removedCount == 0 {
-		return 0
+		return 0, duplicates, protected
 	}
 	// Insert a non-secret marker. We intentionally do not summarize omitted
 	// content here because local summarization would itself require another model call.
@@ -127,7 +162,7 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 		idx := -1
 		for i := 0; i < len(arr)-2; i++ {
 			m, _ := arr[i].(map[string]any)
-			if !protectedRole(messageRole(m)) {
+			if messageRole(m) == "tool" && !structurallyProtected(m) {
 				idx = i
 				break
 			}
@@ -138,7 +173,7 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 		root[key] = append(arr[:idx], arr[idx+1:]...)
 		removedCount++
 	}
-	return removedCount
+	return removedCount, duplicates, protected
 }
 
 func Apply(raw []byte, apiType string, contextWindow int, cfg config.ContextGuardConfig) ([]byte, Report, error) {
@@ -184,7 +219,7 @@ func Apply(raw []byte, apiType string, contextWindow int, cfg config.ContextGuar
 	if minRecent < 2 {
 		minRecent = 8
 	}
-	removed := compactMessageArray(root, key, target, minRecent)
+	removed, duplicates, protected := compactMessageArray(root, key, target, minRecent)
 	if removed == 0 {
 		rep.Action = "unable_to_compact"
 		rep.Reason = "no_removable_messages"
@@ -195,6 +230,8 @@ func Apply(raw []byte, apiType string, contextWindow int, cfg config.ContextGuar
 		return raw, rep, err
 	}
 	rep.RemovedMessages = removed
+	rep.DuplicateMessages = duplicates
+	rep.ProtectedMessages = protected
 	rep.AfterTokens = EstimateJSON(out)
 	rep.SavedTokens = rep.BeforeTokens - rep.AfterTokens
 	if rep.SavedTokens < 0 {
