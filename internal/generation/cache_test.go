@@ -1,21 +1,29 @@
 package generation
 
 import (
-	"omnibridge/internal/config"
 	"testing"
 	"time"
+
+	"omnibridge/internal/config"
 )
 
-func TestCacheabilityProtectsToolsAndStreaming(t *testing.T) {
+func TestCacheabilityProtectsToolsStreamingAndImplicitTemperature(t *testing.T) {
 	if !Cacheable([]byte(`{"temperature":0,"stream":false,"messages":[]}`)) {
-		t.Fatal("deterministic request should be cacheable")
+		t.Fatal("explicit deterministic request should be cacheable")
 	}
-	for _, raw := range []string{`{"temperature":0.1}`, `{"temperature":0,"stream":true}`, `{"temperature":0,"tools":[{"type":"function"}]}`} {
+	for _, raw := range []string{
+		`{"messages":[]}`,
+		`{"temperature":null}`,
+		`{"temperature":0.1}`,
+		`{"temperature":0,"stream":true}`,
+		`{"temperature":0,"tools":[{"type":"function"}]}`,
+	} {
 		if Cacheable([]byte(raw)) {
 			t.Fatalf("must not cache %s", raw)
 		}
 	}
 }
+
 func TestPhysicalIdentityAndNamespaceIsolateCache(t *testing.T) {
 	cfg := config.ExactCacheConfig{Enabled: true, TTLSeconds: 60, MaxEntries: 10, MaxEntryBytes: 4096, Deduplicate: true}
 	m := New(cfg)
