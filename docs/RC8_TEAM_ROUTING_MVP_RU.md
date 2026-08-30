@@ -22,7 +22,8 @@ RC8 Team Routing состоит из двух независимо включа�
 - sticky lead ownership по `task_id`;
 - ограниченное число assistants;
 - независимый reviewer для high/critical задач;
-- preference reviewer из другого provider при наличии подходящего кандидата;
+- provider privacy boundary: reviewer/assistants по умолчанию остаются у provider выбранного lead;
+- cross-provider review/assistants только через явные execution-policy opt-in флаги;
 - объяснимый план назначения и причины rejection;
 - persistent config через SQLite document `team-routing.json`;
 - admin API для статуса, настройки и dry-run evaluation;
@@ -58,7 +59,8 @@ Orchestration не имеет права ослабить нижележащие
 7. verified context window;
 8. quota reserve policy;
 9. operator `risk_limit` и разрешённые assignment roles;
-10. **повторная dispatch-time revalidation** непосредственно перед assistant/lead/reviewer call.
+10. provider privacy boundary;
+11. **повторная dispatch-time revalidation** непосредственно перед assistant/lead/reviewer call.
 
 Security role намеренно **не выводится автоматически**. Для назначения модели на `security_review` оператор должен явно добавить соответствующую роль в profile.
 
@@ -115,6 +117,25 @@ Profile может задавать `minimum_quota_reserve` в процента�
 
 Поскольку eligibility проверяется повторно перед каждым dispatch, assistant calls не могут незаметно истратить квоту и оставить stale lead/reviewer eligible по старому snapshot.
 
+## Provider privacy boundary
+
+Наличие нескольких облачных providers не означает разрешение автоматически передавать один и тот же пользовательский контекст каждому из них.
+
+По умолчанию:
+
+- `allow_cross_provider_review=false`;
+- `allow_cross_provider_assistants=false`;
+- reviewer должен быть другой физической моделью, но у того же provider, что и lead;
+- assistant с другим provider не запускается;
+- если high/critical task требует reviewer, а у provider lead нет второго подходящего reviewer, plan становится invalid/fail-closed вместо скрытой отправки задачи другому vendor.
+
+Только явный operator opt-in разрешает cross-provider sharing:
+
+- `allow_cross_provider_review=true` разрешает и предпочитает подходящего reviewer у другого provider;
+- `allow_cross_provider_assistants=true` разрешает advisory assistants у других providers.
+
+Эти флаги влияют и на dry-run, поэтому оператор видит границы передачи данных **до** реального execution.
+
 ## Reviewer
 
 `reviewer_risk_threshold` определяет, начиная с какого уровня нужен независимый reviewer. По умолчанию — `high`.
@@ -124,7 +145,8 @@ Reviewer:
 - не может совпадать с lead;
 - обязан пройти identity + Doctor gates;
 - должен иметь подходящую review/analysis/security роль;
-- при возможности предпочитается другой provider;
+- по умолчанию остаётся у provider lead, но является другой физической моделью;
+- cross-provider reviewer разрешается только при `allow_cross_provider_review=true`;
 - вызывается без tools отдельным bounded call;
 - не имеет права инициировать новый delegation loop;
 - возвращает структурированный verdict `approve` или `concerns`;
@@ -142,6 +164,8 @@ Execution assistants дополнительно ограничены:
 - только non-tool / non-agent request;
 - в preview — только Chat Completions;
 - каждый assistant выполняет read-only advisory call без tools;
+- по умолчанию assistant должен принадлежать provider lead;
+- другой provider разрешается только при `allow_cross_provider_assistants=true`;
 - notes передаются lead как **untrusted user-level evidence**, а не как system/developer instruction;
 - число assistants ограничено одновременно `policy.max_assistants` и `execution.max_calls`.
 
@@ -168,6 +192,8 @@ Execution assistants дополнительно ограничены:
     "max_estimated_cost_usd": 0.25,
     "require_known_cost": false,
     "run_assistants": false,
+    "allow_cross_provider_review": false,
+    "allow_cross_provider_assistants": false,
     "block_on_review_concerns_at": "critical"
   },
   "profiles": {
@@ -201,7 +227,9 @@ Execution limits:
 - `max_response_bytes`: до 32 MiB;
 - `max_review_bytes`: до 2 MiB;
 - `max_estimated_cost_usd`: `0` отключает локальный estimate ceiling;
-- `require_known_cost=true` запрещает execution, если для любой обязательной модели нет cost hint.
+- `require_known_cost=true` запрещает execution, если для любой обязательной модели нет cost hint;
+- `allow_cross_provider_review=false` по умолчанию не разрешает отправлять task/lead response другому provider для review;
+- `allow_cross_provider_assistants=false` по умолчанию не разрешает отправлять task другому provider для advisory call.
 
 ## Admin API
 
@@ -234,7 +262,7 @@ Dry-run endpoint. Никогда не делает upstream вызов.
 }
 ```
 
-Ответ содержит requirements, task, lead/assistants/reviewer, scores/reasons, rejection reasons, profile sources и hard gates.
+Ответ содержит requirements, task, lead/assistants/reviewer, scores/reasons, rejection reasons, profile sources, provider-sharing policy и hard gates.
 
 ## Bounded data-plane preview
 
@@ -289,10 +317,10 @@ Content-Type: application/json
 3. Analyzer получает фактические capability requirements.
 4. Classifier строит task/risk.
 5. Planner выбирает lead/assistants/reviewer.
-6. Different-provider reviewer предпочитается, если доступен.
+6. Provider privacy policy ограничивает reviewer/assistants provider-ом lead, если cross-provider opt-in не включён.
 7. Проверяется `max_calls` и estimated cost ceiling.
 8. Создаётся общий wall-clock deadline.
-9. Опциональные assistants выполняются как advisory calls.
+9. Опциональные assistants выполняются как advisory calls в разрешённых provider boundaries.
 10. Перед lead делается свежая eligibility/quota/health revalidation.
 11. Lead вызывается как **exact physical model** через существующий `upstream` contract; Team layer не делает скрытый fallback.
 12. Existing Context Optimizer применяется к lead request.
@@ -327,7 +355,8 @@ Composite Team execution не использует Exact Response Cache RC8. О�
 - reviewer verdict/summary;
 - calls/max calls;
 - estimated/actual cost telemetry;
-- Context Optimizer mode.
+- Context Optimizer mode;
+- фактически разрешённые cross-provider review/assistant flags.
 
 Headers:
 
