@@ -11,8 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  quality:
+    name: portable-quality
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -20,11 +21,35 @@ jobs:
           go-version: '1.27.x'
           cache: false
       - name: Go formatting gate
-        shell: pwsh
+        shell: bash
         run: |
-          $goFiles = Get-ChildItem -Path cmd,internal -Recurse -Filter *.go | ForEach-Object { $_.FullName }
-          gofmt -w $goFiles
+          set -euo pipefail
+          mapfile -t go_files < <(find cmd internal -type f -name '*.go' -print | sort)
+          gofmt -w "${go_files[@]}"
           git diff --exit-code -- cmd internal
+      - name: Go tests
+        run: go test ./...
+      - name: Race detector
+        run: go test -race ./...
+      - name: Go vet
+        run: go vet ./...
+      - name: Vulnerability gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  windows:
+    name: windows-native
+    runs-on: windows-2025
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: false
       - name: Regenerate Windows resources
         shell: pwsh
         run: |
@@ -33,20 +58,9 @@ jobs:
           foreach ($target in @('accounts','bridge','desktop','setup','tray')) {
             & $rsrc -manifest assets/omnibridge.exe.manifest -ico assets/omnibridge.ico -o ("cmd/{0}/rsrc_windows_amd64.syso" -f $target)
           }
-      - name: Go tests
+      - name: Native Windows Go tests
         shell: pwsh
         run: go test ./...
-      - name: Race detector
-        shell: pwsh
-        run: go test -race ./...
-      - name: Go vet
-        shell: pwsh
-        run: go vet ./...
-      - name: Vulnerability gate
-        shell: pwsh
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck ./...
       - name: Validate XAML and PowerShell
         shell: pwsh
         run: ./scripts/validate-ui.ps1 -Root $PWD
