@@ -20,6 +20,7 @@ import (
 )
 
 const Version = "1.0"
+const snapshotDocument = "models-dev-catalog.json"
 
 type Entry struct {
 	ProviderID          string  `json:"provider_id"`
@@ -84,12 +85,28 @@ func catalogHTTPClient() *http.Client {
 }
 
 func New(db *storage.DB, cfg config.CatalogSyncConfig) *Service {
-	return &Service{cfg: cfg, db: db, client: catalogHTTPClient(), snapshot: Snapshot{Version: Version, SourceURL: cfg.URL, Entries: []Entry{}, ReferenceOnly: true}}
+	s := &Service{cfg: cfg, db: db, client: catalogHTTPClient(), snapshot: Snapshot{Version: Version, SourceURL: cfg.URL, Entries: []Entry{}, ReferenceOnly: true}}
+	if db == nil {
+		return s
+	}
+	raw, ok, err := db.GetDocument(snapshotDocument)
+	if err != nil || !ok {
+		return s
+	}
+	var saved Snapshot
+	if json.Unmarshal(raw, &saved) != nil || !saved.ReferenceOnly || len(saved.Entries) == 0 {
+		return s
+	}
+	// Preserve SourceURL from the persisted snapshot: it identifies the source
+	// of the actual last-known-good data even if the configured URL has changed.
+	saved.Version = Version
+	saved.LastError = ""
+	s.snapshot = saved
+	return s
 }
 func (s *Service) UpdateConfig(c config.CatalogSyncConfig) {
 	s.mu.Lock()
 	s.cfg = c
-	s.snapshot.SourceURL = c.URL
 	s.mu.Unlock()
 }
 func (s *Service) Snapshot() Snapshot {
@@ -187,7 +204,7 @@ func (s *Service) Sync(ctx context.Context) (Snapshot, error) {
 	s.mu.Unlock()
 	if s.db != nil {
 		b, _ := json.Marshal(snap)
-		_ = s.db.PutDocument("models-dev-catalog.json", b)
+		_ = s.db.PutDocument(snapshotDocument, b)
 	}
 	return snap, nil
 }
