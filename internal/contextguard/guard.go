@@ -81,9 +81,43 @@ func messageRole(m map[string]any) string {
 func protectedRole(role string) bool { return role == "system" || role == "developer" }
 
 func messageContent(m map[string]any) string { s, _ := m["content"].(string); return s }
+func hasToolContract(m map[string]any) bool {
+	if messageRole(m) == "tool" {
+		return true
+	}
+	for _, key := range []string{"tool_calls", "function_call", "tool_call_id", "functions_state_id"} {
+		if v, ok := m[key]; ok && v != nil {
+			switch x := v.(type) {
+			case string:
+				if strings.TrimSpace(x) != "" {
+					return true
+				}
+			case []any:
+				if len(x) > 0 {
+					return true
+				}
+			default:
+				return true
+			}
+		}
+	}
+	// Anthropic/Gemini-style canonical message content may carry tool contracts
+	// as typed blocks rather than top-level OpenAI fields.
+	if blocks, ok := m["content"].([]any); ok {
+		for _, block := range blocks {
+			bm, _ := block.(map[string]any)
+			typeName, _ := bm["type"].(string)
+			switch strings.ToLower(strings.TrimSpace(typeName)) {
+			case "tool_use", "tool_result", "function_call", "function_response":
+				return true
+			}
+		}
+	}
+	return false
+}
 func structurallyProtected(m map[string]any) bool {
 	role := messageRole(m)
-	if protectedRole(role) {
+	if protectedRole(role) || hasToolContract(m) {
 		return true
 	}
 	content := strings.TrimSpace(messageContent(m))
@@ -105,7 +139,9 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 	if !ok || len(arr) <= minRecent {
 		return 0, 0, 0
 	}
-	// Keep all system/developer messages and the latest minRecent conversation turns.
+	// Keep all system/developer and tool-contract messages plus the latest
+	// minRecent conversation turns. Safe compaction may remove only duplicate
+	// plain-text history; it never breaks a tool call/result pair.
 	keepFrom := len(arr) - minRecent
 	if keepFrom < 0 {
 		keepFrom = 0
@@ -116,22 +152,20 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 	for i, item := range arr {
 		m, _ := item.(map[string]any)
 		role := messageRole(m)
-		if structurallyProtected(m) {
+		protectedMessage := structurallyProtected(m)
+		if protectedMessage {
 			protected++
 		}
 		fingerprint := role + "\x00" + messageContent(m)
 		duplicate := i < keepFrom && fingerprint != "\x00" && seen[fingerprint]
-		removableTool := i < keepFrom && role == "tool" && !structurallyProtected(m)
-		if i >= keepFrom || structurallyProtected(m) || (!duplicate && !removableTool) {
+		if i >= keepFrom || protectedMessage || !duplicate {
 			kept = append(kept, item)
 			if fingerprint != "\x00" {
 				seen[fingerprint] = true
 			}
 			continue
 		}
-		if duplicate {
-			duplicates++
-		}
+		duplicates++
 		removedCount++
 	}
 	if removedCount == 0 {
@@ -139,7 +173,7 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 	}
 	// Insert a non-secret marker. We intentionally do not summarize omitted
 	// content here because local summarization would itself require another model call.
-	marker := map[string]any{"role": "system", "content": fmt.Sprintf("[OmniBridge Context Guard omitted %d older conversation messages to fit the verified context window.]", removedCount)}
+	marker := map[string]any{"role": "system", "content": fmt.Sprintf("[OmniBridge Context Guard omitted %d older duplicate conversation messages to fit the verified context window.]", removedCount)}
 	// Put marker after existing leading system/developer instructions.
 	pos := 0
 	for pos < len(kept) {
@@ -153,26 +187,6 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 	copy(kept[pos+1:], kept[pos:])
 	kept[pos] = marker
 	root[key] = kept
-	// If still too large, trim additional oldest non-system entries while always preserving last 2.
-	for estimateAny(root) > target {
-		arr, _ = root[key].([]any)
-		if len(arr) <= 3 {
-			break
-		}
-		idx := -1
-		for i := 0; i < len(arr)-2; i++ {
-			m, _ := arr[i].(map[string]any)
-			if messageRole(m) == "tool" && !structurallyProtected(m) {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			break
-		}
-		root[key] = append(arr[:idx], arr[idx+1:]...)
-		removedCount++
-	}
 	return removedCount, duplicates, protected
 }
 
@@ -222,7 +236,7 @@ func Apply(raw []byte, apiType string, contextWindow int, cfg config.ContextGuar
 	removed, duplicates, protected := compactMessageArray(root, key, target, minRecent)
 	if removed == 0 {
 		rep.Action = "unable_to_compact"
-		rep.Reason = "no_removable_messages"
+		rep.Reason = "no_safe_removable_messages"
 		return raw, rep, nil
 	}
 	out, err := json.Marshal(root)
