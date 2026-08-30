@@ -7,6 +7,7 @@
   "db_schema": 4,
   "protocol_engine": "3.1",
   "router_runtime": "3.1",
+  "adaptive_engine": "1.0",
   "minimum_supported_upgrade": "0.3.2-rc6",
   "built_at_utc": "2026-08-30T05:30:00Z"
 }
