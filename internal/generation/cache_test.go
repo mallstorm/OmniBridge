@@ -38,3 +38,36 @@ func TestPhysicalIdentityAndNamespaceIsolateCache(t *testing.T) {
 		t.Fatal("cross-client cache hit")
 	}
 }
+
+func TestLRUEvictionTouchesHits(t *testing.T) {
+	m := New(config.ExactCacheConfig{Enabled: true, TTLSeconds: 60, MaxEntries: 2, MaxEntryBytes: 4096})
+	for _, key := range []string{"a", "b"} {
+		if !m.Put(Entry{Signature: key, Body: []byte(key)}) {
+			t.Fatalf("put %s failed", key)
+		}
+	}
+	if _, ok := m.Get("a"); !ok {
+		t.Fatal("expected cache hit for a")
+	}
+	m.Put(Entry{Signature: "c", Body: []byte("c")})
+	if _, ok := m.Get("b"); ok {
+		t.Fatal("least-recently-used entry b was not evicted")
+	}
+	if _, ok := m.Get("a"); !ok {
+		t.Fatal("recently touched entry a was evicted")
+	}
+}
+
+func TestExpiredDedupResultsArePruned(t *testing.T) {
+	m := New(config.ExactCacheConfig{Deduplicate: true})
+	m.mu.Lock()
+	m.completed["expired"] = Entry{Signature: "expired", ExpiresAt: time.Now().Add(-time.Second), Body: []byte("old")}
+	m.mu.Unlock()
+	m.Snapshot()
+	m.mu.Lock()
+	_, ok := m.completed["expired"]
+	m.mu.Unlock()
+	if ok {
+		t.Fatal("expired dedup result was retained")
+	}
+}
