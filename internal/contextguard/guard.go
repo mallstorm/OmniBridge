@@ -2,7 +2,6 @@ package contextguard
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -134,14 +133,15 @@ func structurallyProtected(m map[string]any) bool {
 	return false
 }
 
-func compactMessageArray(root map[string]any, key string, target int64, minRecent int) (removed, duplicates, protected int) {
+func compactMessageArray(root map[string]any, key string, _ int64, minRecent int) (removed, duplicates, protected int) {
 	arr, ok := root[key].([]any)
 	if !ok || len(arr) <= minRecent {
 		return 0, 0, 0
 	}
 	// Keep all system/developer and tool-contract messages plus the latest
 	// minRecent conversation turns. Safe compaction may remove only duplicate
-	// plain-text history; it never breaks a tool call/result pair.
+	// plain-text history; it never breaks a tool call/result pair and never
+	// injects a synthetic system/developer instruction into the client prompt.
 	keepFrom := len(arr) - minRecent
 	if keepFrom < 0 {
 		keepFrom = 0
@@ -171,21 +171,6 @@ func compactMessageArray(root map[string]any, key string, target int64, minRecen
 	if removedCount == 0 {
 		return 0, duplicates, protected
 	}
-	// Insert a non-secret marker. We intentionally do not summarize omitted
-	// content here because local summarization would itself require another model call.
-	marker := map[string]any{"role": "system", "content": fmt.Sprintf("[OmniBridge Context Guard omitted %d older duplicate conversation messages to fit the verified context window.]", removedCount)}
-	// Put marker after existing leading system/developer instructions.
-	pos := 0
-	for pos < len(kept) {
-		m, _ := kept[pos].(map[string]any)
-		if !protectedRole(messageRole(m)) {
-			break
-		}
-		pos++
-	}
-	kept = append(kept, nil)
-	copy(kept[pos+1:], kept[pos:])
-	kept[pos] = marker
 	root[key] = kept
 	return removedCount, duplicates, protected
 }
