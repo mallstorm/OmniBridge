@@ -74,9 +74,16 @@ func Cacheable(raw []byte) bool {
 	if tools, ok := v["tools"].([]any); ok && len(tools) > 0 {
 		return false
 	}
-	temp := 0.0
-	if n, ok := v["temperature"].(float64); ok {
-		temp = n
+	// Exact caching is intentionally opt-in at the request level as well as in
+	// config: a missing temperature must not be treated as temperature=0 because
+	// OpenAI-compatible APIs commonly default it to a non-deterministic value.
+	rawTemp, exists := v["temperature"]
+	if !exists {
+		return false
+	}
+	temp, ok := rawTemp.(float64)
+	if !ok {
+		return false
 	}
 	return temp == 0
 }
