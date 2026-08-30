@@ -113,6 +113,41 @@ func (s *Server) teamCandidates(req obr.Requirements) ([]orchestration.Candidate
 	return out, sources
 }
 
+func (s *Server) dispatchTeamAdmin(w http.ResponseWriter, r *http.Request) bool {
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	var handler http.HandlerFunc
+	switch path {
+	case "/bridge/orchestration":
+		switch r.Method {
+		case http.MethodGet:
+			handler = s.teamRoutingStatus
+		case http.MethodPut:
+			handler = s.putTeamRoutingConfig
+		default:
+			w.Header().Set("Allow", "GET, PUT")
+			jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+			return true
+		}
+	case "/bridge/orchestration/evaluate":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+			return true
+		}
+		handler = s.teamRoutingEvaluate
+	default:
+		return false
+	}
+	if !authOK(r, s.Config.Get().AdminAPIKey) {
+		jsonErr(w, http.StatusUnauthorized, "invalid admin key")
+		return true
+	}
+	// remoteGuard dispatches before the ordinary mux, so preserve the same
+	// panic-recovery contract explicitly for these extension endpoints.
+	s.recoverPanics(handler).ServeHTTP(w, r)
+	return true
+}
+
 func (s *Server) teamRoutingStatus(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, http.StatusOK, s.teamService().Snapshot())
 }
