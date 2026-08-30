@@ -120,6 +120,12 @@ func (s *Server) teamCandidates(req obr.Requirements) ([]orchestration.Candidate
 }
 
 func (s *Server) dispatchTeamAdmin(w http.ResponseWriter, r *http.Request) bool {
+	// remoteGuard calls this extension point only after the remote CIDR policy.
+	// Claim data-plane requests only when their body explicitly selects team/*;
+	// all ordinary /v1 traffic falls through to the unchanged RC8 mux.
+	if s.dispatchTeamData(w, r) {
+		return true
+	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	var handler http.HandlerFunc
 	switch path {
@@ -155,7 +161,10 @@ func (s *Server) dispatchTeamAdmin(w http.ResponseWriter, r *http.Request) bool 
 }
 
 func (s *Server) teamRoutingStatus(w http.ResponseWriter, r *http.Request) {
-	jsonOut(w, http.StatusOK, s.teamService().Snapshot())
+	out := s.teamService().Snapshot()
+	out["virtual_models"] = teamVirtualModels
+	out["execution_contract"] = "bounded_non_streaming"
+	jsonOut(w, http.StatusOK, out)
 }
 
 func (s *Server) putTeamRoutingConfig(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +178,7 @@ func (s *Server) putTeamRoutingConfig(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	jsonOut(w, http.StatusOK, map[string]any{"ok": true, "config": svc.Config()})
+	jsonOut(w, http.StatusOK, map[string]any{"ok": true, "config": svc.Config(), "virtual_models": teamVirtualModels})
 }
 
 type teamEvaluateInput struct {
@@ -251,7 +260,7 @@ func (s *Server) teamRoutingEvaluate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if apiType == "" {
-		apiType = "chat-completions"
+		apiType = teamChatCompletions
 	}
 	var meta struct {
 		Model string `json:"model"`
@@ -298,15 +307,18 @@ func (s *Server) teamRoutingEvaluate(w http.ResponseWriter, r *http.Request) {
 	cfg := svc.Config()
 	candidates, profileSources := s.teamCandidates(req)
 	plan := svc.Engine().Plan(task, candidates, cfg.Policy)
+	plan = orchestration.PreferIndependentReviewer(plan, candidates, cfg.Policy)
 	out := map[string]any{
-		"version":         orchestration.Version,
-		"execution":       "dry_run_only",
-		"request_model":   meta.Model,
-		"api_type":        apiType,
-		"requirements":    req,
-		"plan":            plan,
-		"profile_sources": profileSources,
-		"hard_gates":      []string{"health", "chat_verified", "identity_verified_for_high_risk", "doctor_verified_for_high_risk", "agent_ready_for_tools", "context", "protected_quota_reserve"},
+		"version":                   orchestration.Version,
+		"execution":                 "dry_run_only",
+		"bounded_execution_enabled": cfg.Execution.Enabled,
+		"request_model":             meta.Model,
+		"api_type":                  apiType,
+		"requirements":              req,
+		"plan":                      plan,
+		"profile_sources":           profileSources,
+		"virtual_models":            teamVirtualModels,
+		"hard_gates":                []string{"health", "chat_verified", "identity_verified_for_high_risk", "doctor_verified_for_high_risk", "agent_ready_for_tools", "context", "protected_quota_reserve", "dispatch_time_revalidation"},
 	}
 	if !cfg.Enabled {
 		out["enabled"] = false
