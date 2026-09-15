@@ -1,2 +1,2 @@
 @echo off
-start "" "%~dp0OmniBridgeSetup.exe" --update "%~1"
+"%~dp0OmniBridge.exe" --update "%~1"
