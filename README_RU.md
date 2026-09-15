@@ -1,4 +1,11 @@
-# OmniBridge 1.0.0-rc7 — Universal AI Gateway
+# OmniBridge 1.0.0-rc8 — Universal AI Gateway
+
+## 1.0.0-rc8 — Cline Bridge, copyable Local Bridge Key и чистые артефакты
+
+`1.0.0-rc8` закрывает практическое подключение сторонних OpenAI-compatible клиентов. На странице **«Интеграция»** Local Bridge Key можно скопировать одной кнопкой, endpoint копируется отдельно, а **«Проверить Cline API»** делает аутентифицированный `GET /v1/models` тем же ключом.
+
+Для Cline: **API Provider = OpenAI Compatible**, **Base URL = `http://127.0.0.1:4142/v1`**, **API Key = Local Bridge Key**. Список Model ID приходит через `GET <Base URL>/models`; upstream API keys (включая Yandex) наружу не передаются. Release pipeline теперь создаёт отдельные Windows runtime и Source архивы; пользовательские `data/`, logs, SQLite/DPAPI secrets и compiled EXE не попадают в source. Подробнее: `docs/RC8_CLINE_BRIDGE_RU.md`.
+
 
 ## 1.0.0-rc7 — Verified Models, Identity и управляемые пулы
 
@@ -96,7 +103,7 @@ Gemini Account Connector — **Gemini Developer API OAuth**. Требуется 
 `/bridge/statistics` теперь выдаёт period-specific provider/model breakdowns, AVG latency, P95 и Success Rate. Добавлена 7-дневная история connection health и категоризированные redacted logs.
 
 ### Release Engineering
-Portable режим сохранён. В пакет добавлен `OmniBridgeSetup.exe` для install/repair/backup/restore/update/uninstall. Update проверяет SHA256 и автоматически откатывает программные файлы, если новая версия не проходит `/health`. Подробности: `docs/MAINTENANCE_RU.md`.
+Portable режим сохранён. Начиная с rc8 install/repair/backup/restore/update/uninstall встроены в единый `OmniBridge.exe`; отдельный setup-exe больше не требуется. Update проверяет SHA256 и автоматически откатывает программные файлы, если новая версия не проходит `/health`. Подробности: `docs/MAINTENANCE_RU.md`.
 
 ## Первый запуск — Portable
 1. Распакуйте весь ZIP в отдельную папку.
@@ -107,7 +114,7 @@ Portable режим сохранён. В пакет добавлен `OmniBridge
 6. Экспортируйте рабочие модели через «Интеграция».
 
 ## Установка
-Запустите `install.cmd` или `OmniBridgeSetup.exe --install`. Installed mode: `%LOCALAPPDATA%\OmniBridge`.
+Запустите `install.cmd` или `OmniBridge.exe --install`. Installed mode: `%LOCALAPPDATA%\OmniBridge`.
 
 ## Важно о secrets
 API/OAuth/bridge credentials защищаются DPAPI CurrentUser. Переносимый backup сознательно исключает `secrets.json`; перенос на другой Windows user требует повторного ввода credentials/login.
