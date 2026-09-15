@@ -1,49 +1,14 @@
-OmniBridge 1.0.0-rc6 — VALIDATION REPORT
-=========================================
-Audit date: 2026-08-29
-Scope: full source archive, RC6 Yandex/VS Code changes, release consistency, GitHub baseline
+OmniBridge 1.0.0-rc8 — VALIDATION REPORT
+Date: 2026-09-15
 
-ARCHIVE
-[PASS] ZIP integrity/CRC: 386 entries
-[PASS] path traversal scan: 0 unsafe paths
-[PASS] symlink scan: 0 symlinks
-[PASS] source tree extracted completely
+[PASS] Core/VERSION/RELEASE version: 1.0.0-rc8
+[PASS] Windows manifest target: 1.0.0.8
+[PASS] copyable Local Bridge Key
+[PASS] authenticated Cline GET /v1/models self-test
+[PASS] OpenAI-compatible object=list + data[].id
+[PASS] split Windows runtime / Source packaging
+[PASS] legacy OmniBridgeSetup build dependency removed
+[PASS] gofmt / go test ./... / go vet ./...
+[PASS] Windows amd64 cross-build of integrated OmniBridge.exe
 
-VERSION / RELEASE
-[PASS] Core/VERSION.txt/RELEASE.json: 1.0.0-rc6
-[PASS] static XAML fallback version: 1.0.0-rc6
-[PASS] Windows assembly manifest version: 1.0.0.6
-[PASS] automated release-version consistency test added
-[PASS] stale root SHA256SUMS regenerated after audit
-
-GO / STORAGE / SECURITY
-[PASS] gofmt: clean
-[PASS] go test ./... with SQLite
-[PASS] go test -race ./... with SQLite
-[PASS] go vet ./...
-[PASS] GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
-[PASS] Windows x64 cross-build: OmniBridge.exe + OmniBridgeSetup.exe
-[PASS] Windows SQLite REAL conversion fixed and Windows regression test added
-[PASS] local API key comparison uses constant-time digest comparison
-
-PROVIDER / UI STATIC VALIDATION
-[PASS] provider catalog JSON: 92 unique definitions
-[PASS] support levels classified: 5 native, 18 preset, 4 local, 14 local-template, 47 template, 3 reserved, 1 custom
-[PASS] XAML XML parse: 14/14
-[PASS] named Button handlers: 65/65
-[PASS] workflow YAML parse
-[PASS] secret-like filename/pattern scan
-
-GITHUB
-[PASS] authenticated repository identified: mallstorm/OmniBridge
-[PASS] repository baseline is 1.0.0-rc5 and therefore older than this source
-[PASS] newer artifact-retention CI commits identified and preserved during RC6 overlay
-[PASS] GitHub Actions Windows: formatting, resource regeneration, Go tests, vet, UI validation and release ZIP build
-[WARN] GitHub artifact upload quota exhausted; upload is best-effort until GitHub recalculates storage
-
-REMAINING ACCEPTANCE
-[PENDING] run scripts/validate-ui.ps1 under Windows PowerShell 5.1
-[PENDING] live WPF/Tray and DPAPI round-trip smoke test
-[PENDING] live credentials: Yandex models/chat/responses/tools/cache acceptance
-
-See docs/AUDIT_2026-08-29_RU.md for findings, comparison and roadmap.
+NOT CLAIMED: native Windows WPF/DPAPI smoke test was not executed in this Linux environment.
