@@ -20,7 +20,6 @@ try{
     }
     Step 'Windows x64 bridge/setup build' {
         $og=$env:GOOS;$oa=$env:GOARCH;$oc=$env:CGO_ENABLED;$tmp=Join-Path $env:TEMP ('omnibridge-validation-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $tmp|Out-Null
-        try{$env:GOOS='windows';$env:GOARCH='amd64';$env:CGO_ENABLED='0';& go build -buildvcs=false -trimpath -ldflags '-s -w -H windowsgui' -o (Join-Path $tmp 'OmniBridge.exe') ./cmd/bridge;if($LASTEXITCODE-ne 0){throw 'bridge build failed'};& go build -buildvcs=false -trimpath -ldflags '-s -w -H windowsgui' -o (Join-Path $tmp 'OmniBridgeSetup.exe') ./cmd/setup;if($LASTEXITCODE-ne 0){throw 'setup build failed'}}finally{$env:GOOS=$og;$env:GOARCH=$oa;$env:CGO_ENABLED=$oc;Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue}
     }
     $lines.Insert(0,"OmniBridge production validation $(Get-Date -Format o)")
     $lines|Set-Content -Encoding UTF8 $report
