@@ -1,2 +1,2 @@
 @echo off
-start "" "%~dp0OmniBridgeSetup.exe" --install
+"%~dp0OmniBridge.exe" --install
