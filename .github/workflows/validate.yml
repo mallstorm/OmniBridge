@@ -24,7 +24,7 @@ jobs:
         run: |
           go install github.com/akavel/rsrc@v0.10.2
           $rsrc = Join-Path (go env GOPATH) 'bin\rsrc.exe'
-          foreach ($target in @('accounts','bridge','desktop','setup','tray')) {
+          foreach ($target in @('bridge')) {
             & $rsrc -manifest assets/omnibridge.exe.manifest -ico assets/omnibridge.ico -o ("cmd/{0}/rsrc_windows_amd64.syso" -f $target)
           }
       - name: Go tests
