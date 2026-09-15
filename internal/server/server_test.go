@@ -80,8 +80,27 @@ func TestOpenAICompatibleEndToEnd(t *testing.T) {
 	}
 	mb, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(mb), "mock/model-a") {
-		t.Fatalf("models=%s", mb)
+	var catalog struct {
+		Object string `json:"object"`
+		Data   []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(mb, &catalog); err != nil {
+		t.Fatalf("models JSON is not OpenAI-compatible: %v body=%s", err, mb)
+	}
+	if catalog.Object != "list" {
+		t.Fatalf("models object=%q body=%s", catalog.Object, mb)
+	}
+	foundModel := false
+	for _, item := range catalog.Data {
+		if item.ID == "mock/model-a" {
+			foundModel = true
+			break
+		}
+	}
+	if !foundModel {
+		t.Fatalf("Cline-compatible model id missing: %s", mb)
 	}
 	req, _ = http.NewRequest("POST", ts.URL+"/v1/chat/completions", strings.NewReader(`{"model":"mock/model-a","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Authorization", "Bearer "+c.DataAPIKey)
