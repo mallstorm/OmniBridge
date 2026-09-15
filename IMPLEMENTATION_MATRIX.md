@@ -1,4 +1,4 @@
-# OmniBridge 1.0.0-rc6 — дорожная карта поколения 1.0
+# OmniBridge 1.0.0-rc8 — дорожная карта поколения 1.0
 
 | Этап | Статус | Результат |
 |---|---|---|
@@ -19,6 +19,11 @@
 | 15. 1.0 Release Engineering | **Выполнен в 1.0.0-rc1; RC2 integration patch** | release metadata, package verifier, readiness gate, version-aware install/update rollback, corruption fail-closed, VS Code Custom Endpoint picker/export hardening |
 | 16. Yandex + Stability hardening | **Выполнен в 1.0.0-rc5** | Native Yandex AI Studio, Api-Key + Folder ID, Responses/Chat, cached-token telemetry, overload limits, panic isolation, batched statistics |
 | 17. Yandex/VS Code + Release hardening | **Выполнен в 1.0.0-rc6** | Канонические Yandex URI/имена, фильтр chat-моделей для VS Code, UI `$PID` fix, version consistency, Windows SQLite REAL fix |
+| 18. Cline Bridge + Unified Release | **Выполнен в 1.0.0-rc8** | Copyable Local Bridge Key, `/v1/models` self-test, Cline model discovery, single-EXE maintenance, separated runtime/source artifacts |
+
+## Этап 18 — Cline Bridge + Unified Release
+
+`1.0.0-rc8` добавляет практический Cline contract: копирование Local Bridge Key, аутентифицированный `/v1/models` self-test и model discovery через Gateway. Maintenance унифицирован в одном EXE, а runtime/source выпускаются раздельно без пользовательских secrets/state.
 
 ## Этап 17 — Yandex/VS Code + Release hardening
 
