@@ -1,2 +1,2 @@
 @echo off
-start "" "%~dp0OmniBridgeSetup.exe" --backup
+"%~dp0OmniBridge.exe" --backup
