@@ -28,7 +28,7 @@ function Stop-InstalledOmniBridge([string]$base){
 }
 function Copy-AppPayload([string]$from,[string]$to){
     New-Item -ItemType Directory -Force -Path $to|Out-Null
-    foreach($name in @('OmniBridge.exe','OmniBridgeSetup.exe','README_RU.md','VERSION.txt','RELEASE.json','RELEASE_REPORT.md','IMPLEMENTATION_MATRIX.md','VALIDATION_REPORT.txt','SHA256SUMS.txt')){
+    foreach($name in @('OmniBridge.exe','OmniBridge.exe','README_RU.md','VERSION.txt','RELEASE.json','RELEASE_REPORT.md','IMPLEMENTATION_MATRIX.md','VALIDATION_REPORT.txt','SHA256SUMS.txt')){
         $src=Join-Path $from $name
         if(Test-Path $src){Copy-Item -LiteralPath $src -Destination (Join-Path $to $name) -Force}
     }
@@ -63,7 +63,7 @@ function New-AppSnapshot([string]$base,[string]$prefix){
     $stage=Join-Path $env:TEMP ("OmniBridge-snapshot-"+[guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $stage|Out-Null
     try{
-        foreach($name in @('OmniBridge.exe','OmniBridgeSetup.exe','README_RU.md','VERSION.txt','RELEASE.json','RELEASE_REPORT.md','IMPLEMENTATION_MATRIX.md','VALIDATION_REPORT.txt','SHA256SUMS.txt','install.cmd','repair.cmd','backup.cmd','restore.cmd','update.cmd','uninstall.cmd')){
+        foreach($name in @('OmniBridge.exe','OmniBridge.exe','README_RU.md','VERSION.txt','RELEASE.json','RELEASE_REPORT.md','IMPLEMENTATION_MATRIX.md','VALIDATION_REPORT.txt','SHA256SUMS.txt','install.cmd','repair.cmd','backup.cmd','restore.cmd','update.cmd','uninstall.cmd')){
             $src=Join-Path $base $name;if(Test-Path $src){Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name) -Force}
         }
         foreach($dir in @('assets','scripts','ui','docs')){
