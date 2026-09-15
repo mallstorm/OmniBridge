@@ -149,7 +149,7 @@ func TestReferencePolishRegressions(t *testing.T) {
 		"Logs.xaml":        {`x:Name="LogsSearch"`, `FontSize="14"`, `FontSize="11.8"`, `x:Name="LogsSearchPlaceholder" Text="" Visibility="Collapsed"`},
 		"Models.xaml":      {`x:Name="ModelsSearch"`, `FontSize="14"`, `x:Name="ModelDoctorScore"`, `x:Name="ModelAgentScore"`, `x:Name="ModelCodingScore"`, `x:Name="ModelReliabilityScore"`},
 		"Settings.xaml":    {`x:Name="BtnOpenRoot"`, `Width="112" HorizontalAlignment="Right" VerticalAlignment="Bottom"`},
-		"Integration.xaml": {`x:Name="IntegrationHubState"`, `x:Name="IntegrationHubDetected"`, `x:Name="BtnIntegrationHubRefresh"`},
+		"Integration.xaml": {`x:Name="IntegrationHubState"`, `x:Name="IntegrationHubDetected"`, `x:Name="BtnIntegrationHubRefresh"`, `x:Name="BtnCopyEndpoint"`, `x:Name="BtnCopyBridgeKey"`, `x:Name="BtnClineTest"`, `x:Name="ClineStatus"`},
 	}
 	for file, required := range pageContracts {
 		b, err := os.ReadFile(filepath.Join(root, "ui", "pages", file))
@@ -226,7 +226,7 @@ func TestReferencePolishRegressions(t *testing.T) {
 			t.Errorf("desktop controller still assigns an object array directly: %s", forbidden)
 		}
 	}
-	for _, required := range []string{`function Set-ControlItems`, `function ConvertTo-FlatArray`, `function Model-Icon`, `(?:\.\d+)?`, `$SystemVersion.Text=[string]$st.version`, `$readyCounts`, `Set-ControlItems $AccountsList $rows $AccountsEmpty`, `Работающие локальные AI с загруженными моделями не обнаружены`, `SetCurrentProcessExplicitAppUserModelID`, `$window.Icon=`, `function Initialize-IntegratedTray`, `ui\TrayDashboard.xaml`, `function Show-TrayDashboard`, `function Refresh-TrayDashboard`, `function Update-TrayCountdown`, `function Set-TrayGateway`, `function Invoke-TrayRefresh`, `/bridge/tray`, `/bridge/tray/start`, `/bridge/tray/stop`, `/bridge/tray/refresh`, `$script:TrayReady=$true`, `[Drawing.SystemIcons]::Application`, `ShowBalloonTip(1800)`, `function Hide-MainWindow`, `function Show-MainWindow`, `function Request-ApplicationExit`, `function Refresh-RouterUI`, `function Invoke-RouterDryRun`, `function Refresh-Services`, `/bridge/quota-cost`, `/bridge/context-guard`, `/bridge/mcp`, `/bridge/observability`, `/bridge/integrations`, `/bridge/router/diagnostics`, `/bridge/router/evaluate`, `/bridge/resilience`, `New-Object Windows.Forms.NotifyIcon`, `$BtnMinimize.Add_Click({Hide-MainWindow})`, `$BtnClose.Add_Click({Request-ApplicationExit})`, `$window.Show()`, `[void]$app.Run()`, `/control/shutdown`, `restart.request`} {
+	for _, required := range []string{`function Set-ControlItems`, `function ConvertTo-FlatArray`, `function Model-Icon`, `(?:\.\d+)?`, `$SystemVersion.Text=[string]$st.version`, `$readyCounts`, `Set-ControlItems $AccountsList $rows $AccountsEmpty`, `Работающие локальные AI с загруженными моделями не обнаружены`, `SetCurrentProcessExplicitAppUserModelID`, `$window.Icon=`, `function Initialize-IntegratedTray`, `ui\TrayDashboard.xaml`, `function Show-TrayDashboard`, `function Refresh-TrayDashboard`, `function Update-TrayCountdown`, `function Set-TrayGateway`, `function Invoke-TrayRefresh`, `/bridge/tray`, `/bridge/tray/start`, `/bridge/tray/stop`, `/bridge/tray/refresh`, `$script:TrayReady=$true`, `[Drawing.SystemIcons]::Application`, `ShowBalloonTip(1800)`, `function Hide-MainWindow`, `function Show-MainWindow`, `function Request-ApplicationExit`, `function Refresh-RouterUI`, `function Invoke-RouterDryRun`, `function Refresh-Services`, `/bridge/quota-cost`, `/bridge/context-guard`, `/bridge/mcp`, `/bridge/observability`, `/bridge/integrations`, `function Data-Headers`, `function Invoke-Data`, `$BtnCopyBridgeKey.Add_Click`, `$BtnClineTest.Add_Click`, `/v1/models`, `/bridge/router/diagnostics`, `/bridge/router/evaluate`, `/bridge/resilience`, `New-Object Windows.Forms.NotifyIcon`, `$BtnMinimize.Add_Click({Hide-MainWindow})`, `$BtnClose.Add_Click({Request-ApplicationExit})`, `$window.Show()`, `[void]$app.Run()`, `/control/shutdown`, `restart.request`} {
 		if !strings.Contains(controller, required) {
 			t.Errorf("desktop controller missing %s", required)
 		}
@@ -291,8 +291,13 @@ func TestReferencePolishRegressions(t *testing.T) {
 			t.Errorf("release build still emits legacy runtime executable %s", legacy)
 		}
 	}
-	if !strings.Contains(build, `OmniBridgeSetup.exe') ./cmd/setup`) {
-		t.Error("release build must include the separate maintenance/setup utility")
+	if strings.Contains(build, `./cmd/setup`) || strings.Contains(build, `OmniBridgeSetup.exe`) {
+		t.Error("release build must use the integrated OmniBridge.exe maintenance runtime")
+	}
+	for _, required := range []string{`$runtimeZip`, `$sourceZip`, `sourceDir`, `Secret/runtime files found in package`} {
+		if !strings.Contains(build, required) {
+			t.Errorf("release build missing split-artifact contract %q", required)
+		}
 	}
 }
 
@@ -320,7 +325,7 @@ func TestReleaseEngineeringContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	bt := string(build)
-	for _, required := range []string{"OmniBridgeSetup.exe", "./cmd/setup", "IMPLEMENTATION_MATRIX.md", "RELEASE.json", "SHA256SUMS.txt", "minimum_supported_upgrade", "Secret-like files found"} {
+	for _, required := range []string{"OmniBridge.exe", "IMPLEMENTATION_MATRIX.md", "RELEASE.json", "SHA256SUMS.txt", "minimum_supported_upgrade", "Secret/runtime files found in package", "$runtimeZip", "$sourceZip"} {
 		if !strings.Contains(bt, required) {
 			t.Errorf("build-release.ps1 missing %q", required)
 		}
