@@ -56,8 +56,15 @@ function Load-Xaml([string]$Path){
 }
 function Get-Config {Get-BridgeConfig $script:Root}
 function Admin-Headers {$c=Get-Config;@{Authorization="Bearer $($c.admin_api_key)"}}
+function Data-Headers {$c=Get-Config;@{Authorization="Bearer $($c.data_api_key)"}}
 function Invoke-Admin([string]$Method,[string]$Path,$Body=$null,[int]$Timeout=60){
     $args=@{Method=$Method;Uri=('http://127.0.0.1:4142'+$Path);Headers=(Admin-Headers);TimeoutSec=$Timeout}
+    if($null -ne $Body){$args.ContentType='application/json';$args.Body=($Body|ConvertTo-Json -Depth 12 -Compress)}
+    Invoke-RestMethod @args
+}
+function Invoke-Data([string]$Method,[string]$Path,$Body=$null,[int]$Timeout=30){
+    $c=Get-Config
+    $args=@{Method=$Method;Uri=('http://'+$c.listen+$Path);Headers=(Data-Headers);TimeoutSec=$Timeout}
     if($null -ne $Body){$args.ContentType='application/json';$args.Body=($Body|ConvertTo-Json -Depth 12 -Compress)}
     Invoke-RestMethod @args
 }
@@ -363,6 +370,14 @@ function Refresh-Integration {
         $c=Get-Config;$models=Get-ModelSnapshot;$err=@($models|Where-Object{$_.status-eq'error'}).Count
         $vsExport=Invoke-Admin GET '/bridge/vscode/export';$agent=[int]$vsExport.agent_picker_models;$chat=[int]$vsExport.models_total
         $VSEndpoint.Text=('http://'+$c.listen+'/v1');$VSKey.Text=('••••••••'+$c.data_api_key.Substring([Math]::Max(0,$c.data_api_key.Length-6)));$VSAgentCount.Text=[string]$agent;$VSChatCount.Text=[string]$chat;$VSErrorCount.Text=[string]$err
+        try{
+            $catalog=Invoke-Data GET '/v1/models' $null 5;$clineModels=@(ConvertTo-FlatArray $catalog.data)
+            $ClineStatus.Text=('Cline API: {0} моделей доступно' -f $clineModels.Count)
+            $ClineStatus.Foreground=Brush $(if($clineModels.Count-gt0){'#64EA88'}else{'#F0D259'})
+        }catch{
+            $ClineStatus.Text='Cline API: ошибка доступа к /v1/models'
+            $ClineStatus.Foreground=Brush '#FF8290'
+        }
         try{
             $hub=Invoke-Admin GET '/bridge/integrations';$items=@(ConvertTo-FlatArray $hub.integrations);$det=@($items|Where-Object{$_.detected});$cfg=@($items|Where-Object{$_.status-eq'configured'})
             $IntegrationHubDetected.Text=('обнаружено: {0} / {1}'-f$det.Count,$items.Count)
@@ -738,13 +753,13 @@ function Set-TrayGateway([bool]$Run){
 }
 function Check-TrayUpdates {
     $feed=Join-Path $script:Root 'data\update-feed.json'
-    if(-not(Test-Path $feed)){$TrayUpdateSub.Text='Источник обновлений не настроен';Show-TrayToast 'Источник обновлений не настроен. Обновление можно выполнить через OmniBridgeSetup.' 'info';return}
+    if(-not(Test-Path $feed)){$TrayUpdateSub.Text='Источник обновлений не настроен';Show-TrayToast 'Источник обновлений не настроен. Обновление можно выполнить через OmniBridge.exe --update.' 'info';return}
     try{
         $cfg=Get-Content -Raw -LiteralPath $feed|ConvertFrom-Json;$manifest=$null
         if($cfg.manifest_url){$manifest=Invoke-RestMethod -Uri ([string]$cfg.manifest_url) -TimeoutSec 7}elseif($cfg.version){$manifest=$cfg}else{throw 'В update-feed.json нет manifest_url или version.'}
         $current=(Get-Health).version;$latest=[string]$manifest.version
         if(-not$latest){throw 'Manifest не содержит version.'}
-        if($latest-ne$current){$TrayUpdateSub.Text=('Доступна '+$latest);Show-TrayToast ('Доступна версия '+$latest+'. Установка выполняется через OmniBridgeSetup.') 'warn'}else{$TrayUpdateSub.Text='Текущая версия актуальна';Show-TrayToast 'Установлена актуальная версия.' 'ok'}
+        if($latest-ne$current){$TrayUpdateSub.Text=('Доступна '+$latest);Show-TrayToast ('Доступна версия '+$latest+'. Установка выполняется через OmniBridge.exe --update.') 'warn'}else{$TrayUpdateSub.Text='Текущая версия актуальна';Show-TrayToast 'Установлена актуальная версия.' 'ok'}
     }catch{$TrayUpdateSub.Text='Ошибка проверки обновлений';Show-TrayToast $_.Exception.Message 'error'}
 }
 function Initialize-IntegratedTray {
@@ -827,6 +842,15 @@ $BtnDoctorStart.Add_Click({Start-Doctor});$BtnDoctorReportRefresh.Add_Click({Ref
 $BtnRouterRefresh.Add_Click({Refresh-RouterUI});$RouterProfile.Add_SelectionChanged({if($script:CurrentPage-eq'router'){Refresh-RouterUI}});$BtnRouterEvaluate.Add_Click({Invoke-RouterDryRun})
 $BtnVSSync.Add_Click({try{Sync-VSCode;$VSStatus.Text='Синхронизировано · перезапустите VS Code';$VSLastSync.Text=('Последняя синхронизация: '+(Get-Date -Format 'HH:mm:ss'));Show-Toast 'Синхронизировано. Перезапустите VS Code; при первом добавлении включите 👁 в Manage Models.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
 $BtnVSOpen.Add_Click({Open-Folder (Join-Path $env:APPDATA 'Code\User')});$BtnVSRefresh.Add_Click({Refresh-Integration});$BtnIntegrationHubRefresh.Add_Click({Refresh-Integration})
+$BtnCopyEndpoint.Add_Click({try{$c=Get-Config;$value=('http://'+$c.listen+'/v1');[Windows.Clipboard]::SetText($value);Show-Toast 'Endpoint скопирован в буфер обмена.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
+$BtnCopyBridgeKey.Add_Click({try{$c=Get-Config;[Windows.Clipboard]::SetText([string]$c.data_api_key);Show-Toast 'Local Bridge Key скопирован. Буфер обмена содержит секрет.' 'warn'}catch{Show-Toast $_.Exception.Message 'error'}})
+$BtnClineTest.Add_Click({
+    try{
+        $catalog=Invoke-Data GET '/v1/models' $null 8;$items=@(ConvertTo-FlatArray $catalog.data)
+        $ClineStatus.Text=('Cline API: {0} моделей доступно' -f $items.Count);$ClineStatus.Foreground=Brush $(if($items.Count-gt0){'#64EA88'}else{'#F0D259'})
+        if($items.Count-gt0){Show-Toast ('Cline совместимый /v1/models отвечает. Моделей: '+$items.Count) 'ok'}else{Show-Toast 'Gateway отвечает, но Model Registry пока пуст.' 'warn'}
+    }catch{$ClineStatus.Text='Cline API: ошибка';$ClineStatus.Foreground=Brush '#FF8290';Show-Toast ('Cline API: '+$_.Exception.Message) 'error'}
+})
 $BtnServicesRefresh.Add_Click({Refresh-Services})
 $BtnQuotaRefresh.Add_Click({try{$null=Invoke-Admin POST '/bridge/quota-cost/refresh' @{} 90;Refresh-Services;Show-Toast 'Квоты обновлены из доступных официальных источников.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
 $BtnContextToggle.Add_Click({try{$g=Invoke-Admin GET '/bridge/context-guard';$c=$g.config;$mode=if($c.mode){[string]$c.mode}else{'compact'};if($mode-eq'off'){$mode='compact'};$body=@{enabled=(-not[bool]$c.enabled);mode=$mode;max_context_percent=[double]$c.max_context_percent;reserve_output_tokens=[int]$c.reserve_output_tokens;min_recent_messages=[int]$c.min_recent_messages;max_request_bytes=[int]$c.max_request_bytes};$null=Invoke-Admin PUT '/bridge/context-guard' $body;Refresh-Services;Show-Toast 'Context Guard обновлён.' 'ok'}catch{Show-Toast $_.Exception.Message 'error'}})
