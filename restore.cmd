@@ -1,2 +1,2 @@
 @echo off
-start "" "%~dp0OmniBridgeSetup.exe" --restore
+"%~dp0OmniBridge.exe" --restore
