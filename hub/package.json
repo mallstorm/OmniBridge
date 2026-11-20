@@ -44,7 +44,7 @@
           ]
         }
       ],
-      "icon": "../assets/omnibridge.ico",
+      "icon": "build/icon.ico",
       "artifactName": "OmniHub-Setup-${version}.${ext}"
     },
     "nsis": {
