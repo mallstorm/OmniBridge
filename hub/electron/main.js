@@ -6,8 +6,23 @@ const core = require('./core');
 const { isAllowed } = require('./api');
 const vscode = require('./vscode');
 
+// Software rendering: a dashboard needs no GPU, and GPU/driver faults on some
+// Windows machines show up as an empty black window. Set OMNIHUB_GPU=1 to opt out.
+if (process.env.OMNIHUB_GPU !== '1') app.disableHardwareAcceleration();
+
 const LIVE_INTERVAL_MS = 1000;
 let win = null;
+let uiLogPath = null;
+
+// Appends UI-side problems to hub-ui.log in the user's data folder, so a black
+// window can be diagnosed without DevTools.
+function logUi(line) {
+  try {
+    if (!uiLogPath) uiLogPath = path.join(app.getPath('userData'), 'hub-ui.log');
+    fs.mkdirSync(path.dirname(uiLogPath), { recursive: true });
+    fs.appendFileSync(uiLogPath, `${new Date().toISOString()} ${line}\n`);
+  } catch { /* logging must never break the window */ }
+}
 let child = null;
 let liveTimer = null;
 let home = '';
@@ -19,6 +34,7 @@ function createWindow() {
     height: 800,
     minWidth: 1080,
     minHeight: 680,
+    show: false,
     backgroundColor: '#05070d',
     title: 'OmniHub',
     webPreferences: {
@@ -29,6 +45,24 @@ function createWindow() {
     },
   });
   win.setMenuBarVisibility(false);
+  const wc = win.webContents;
+  const show = () => { if (win && !win.isVisible()) win.show(); };
+  win.once('ready-to-show', show);
+  setTimeout(show, 6000); // never leave the user with no window at all
+
+  wc.on('did-fail-load', (_e, code, desc, url) => logUi(`did-fail-load ${code} ${desc} ${url}`));
+  wc.on('render-process-gone', (_e, details) => {
+    logUi(`render-process-gone ${details.reason} exit=${details.exitCode}`);
+    if (win) dialog.showErrorBox('OmniHub', `Окно интерфейса остановилось (${details.reason}).\nЖурнал: ${uiLogPath}`);
+  });
+  wc.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level >= 3) logUi(`console-error ${message} (${sourceId}:${line})`);
+  });
+  wc.on('before-input-event', (_e, input) => {
+    // Ctrl+Shift+I opens DevTools for diagnosis.
+    if (input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'i') wc.toggleDevTools();
+  });
+
   win.on('closed', () => { win = null; });
   win.loadFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'), { hash: process.env.OMNIHUB_ROUTE || '' });
 }
@@ -139,7 +173,7 @@ async function boot() {
   home = process.env.OMNIHUB_DATA || path.join(app.getPath('userData'), 'core');
   const binary = core.coreBinaryPath(app);
   child = core.startCore(binary, home);
-  child.on('exit', () => { child = null; });
+  child.on('exit', (code) => { logUi(`core exited code=${code}`); child = null; });
   await core.waitForHealth();
   keys = await core.readKeys(binary, home);
   registerIPC();
