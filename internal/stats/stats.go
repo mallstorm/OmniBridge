@@ -219,6 +219,21 @@ func (s *Store) WindowSince(cutoff time.Time) Counter {
 	return c
 }
 
+// windowAfter counts events strictly after the session start. Equal timestamps
+// (coarse clocks on Windows) must not leak persisted events into a new session.
+func (s *Store) windowAfter(start time.Time) Counter {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var c Counter
+	for _, e := range s.s.Events {
+		if !e.At.After(start) {
+			continue
+		}
+		c = add(c, e.Failed, e.InputTokens, e.CachedInputTokens, e.OutputTokens, e.TotalTokens, e.LatencyMS)
+	}
+	return c
+}
+
 func (s *Store) Period(name string) Counter {
 	s.mu.Lock()
 	sessionStart := s.sessionStarted
@@ -231,7 +246,7 @@ func (s *Store) Period(name string) Counter {
 	case "30d":
 		return s.Window(30 * 24 * time.Hour)
 	case "session":
-		return s.WindowSince(sessionStart)
+		return s.windowAfter(sessionStart)
 	case "all", "all_time", "":
 		return s.Snapshot().Total
 	default:
@@ -285,7 +300,11 @@ func (s *Store) PeriodDetails(name string) PeriodSnapshot {
 	providerLat := map[string][]int64{}
 	modelLat := map[string][]int64{}
 	for _, e := range s.s.Events {
-		if !from.IsZero() && e.At.Before(from) {
+		if name == "session" {
+			if !e.At.After(from) {
+				continue
+			}
+		} else if !from.IsZero() && e.At.Before(from) {
 			continue
 		}
 		total = add(total, e.Failed, e.InputTokens, e.CachedInputTokens, e.OutputTokens, e.TotalTokens, e.LatencyMS)
