@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - uses: actions/setup-node@v4
         with:
@@ -46,16 +46,22 @@ jobs:
         run: npm run test:ui
 
       - name: Build Windows core binary
-        working-directory: hub
         shell: pwsh
-        run: npm run core:build:win
+        run: |
+          New-Item -ItemType Directory -Force -Path hub/resources/core | Out-Null
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -o hub/resources/core/omnibridge.exe ./cmd/bridge
+          if ($LASTEXITCODE -ne 0) { throw 'core build failed' }
+          Get-Item hub/resources/core/omnibridge.exe | Format-List Name, Length
 
       - name: Build NSIS installer
         working-directory: hub
         shell: pwsh
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run dist:win
+        run: npx electron-builder --win nsis --publish never
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
