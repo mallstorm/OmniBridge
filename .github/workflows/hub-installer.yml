@@ -1,0 +1,66 @@
+name: Build OmniHub installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/hub-wails]
+    paths:
+      - 'hub/**'
+      - 'internal/**'
+      - 'cmd/**'
+      - '.github/workflows/hub-installer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Go tests for the core
+        shell: pwsh
+        run: go test ./...
+
+      - name: Install UI dependencies
+        working-directory: hub
+        shell: pwsh
+        run: |
+          npm ci
+          npm --prefix frontend ci
+
+      - name: UI and integration tests
+        working-directory: hub
+        shell: pwsh
+        run: npm run test:ui
+
+      - name: Build Windows core binary
+        working-directory: hub
+        shell: pwsh
+        run: npm run core:build:win
+
+      - name: Build NSIS installer
+        working-directory: hub
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:win
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniHub-Setup-x64
+          path: hub/dist-installer/*.exe
+          if-no-files-found: error
+          retention-days: 14

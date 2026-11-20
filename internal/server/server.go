@@ -38,6 +38,7 @@ import (
 )
 
 type Server struct {
+	refreshes       sync.WaitGroup
 	Config          *config.Store
 	Secrets         *secretstore.Store
 	Providers       *providers.Manager
@@ -128,6 +129,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /bridge/providers", s.withAdmin(s.addProvider))
 	mux.HandleFunc("DELETE /bridge/providers/{id}", s.withAdmin(s.deleteProvider))
 	mux.HandleFunc("POST /bridge/providers/{id}/refresh", s.withAdmin(s.refreshProvider))
+	mux.HandleFunc("PUT /bridge/providers/{id}/enabled", s.withAdmin(s.setProviderEnabled))
+	mux.HandleFunc("PUT /bridge/accounts/{id}/enabled", s.withAdmin(s.setAccountEnabled))
 	mux.HandleFunc("POST /bridge/models/{provider}/{model}/probe", s.withAdmin(s.probeModel))
 	mux.HandleFunc("POST /bridge/probe", s.withAdmin(s.probeByBody))
 	mux.HandleFunc("GET /bridge/models", s.withAdmin(s.bridgeModels))

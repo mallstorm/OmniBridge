@@ -1,0 +1,58 @@
+{
+  "name": "omnihub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OmniHub: native desktop hub for OmniBridge Core (Electron shell + React UI)",
+  "main": "electron/main.js",
+  "scripts": {
+    "ui:dev": "npm --prefix frontend run dev",
+    "ui:build": "npm --prefix frontend run build",
+    "core:build:linux": "cd .. && go build -o hub/resources/core/omnibridge ./cmd/bridge",
+    "core:build:win": "cd .. && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o hub/resources/core/omnibridge.exe ./cmd/bridge",
+    "start": "npm run ui:build && electron .",
+    "test:core": "node scripts/smoke-core.js",
+    "dist:win": "npm run ui:build && npm run core:build:win && electron-builder --win nsis --publish never",
+    "test:ui": "node scripts/test-allowlist.js && node scripts/test-vscode.js"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "app.omnihub.desktop",
+    "productName": "OmniHub",
+    "directories": {
+      "output": "dist-installer"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/core/omnibridge.exe",
+        "to": "core/omnibridge.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../assets/omnibridge.ico",
+      "artifactName": "OmniHub-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OmniHub"
+    }
+  }
+}

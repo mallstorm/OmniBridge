@@ -13,25 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"omnibridge/internal/accounts"
-	"omnibridge/internal/config"
-	"omnibridge/internal/health"
-	"omnibridge/internal/providers"
-	"omnibridge/internal/registry"
-	"omnibridge/internal/secretstore"
+	"omnibridge/internal/app"
 	"omnibridge/internal/security"
-	"omnibridge/internal/server"
-	"omnibridge/internal/stats"
-	"omnibridge/internal/storage"
 )
-
-type coreRuntime struct {
-	server   *server.Server
-	accounts *accounts.Manager
-	stats    *stats.Store
-	db       *storage.DB
-	cancel   context.CancelFunc
-}
 
 func main() {
 	root, err := applicationRoot()
@@ -51,6 +35,20 @@ func main() {
 	defer lf.Close()
 	logger := log.New(security.NewRedactingWriter(lf), "", log.LstdFlags|log.Lmicroseconds)
 
+	if len(os.Args) > 1 && os.Args[1] == "keys" {
+		out, err := app.KeysJSON(root)
+		if err != nil {
+			fatal(logger, err)
+		}
+		_, _ = os.Stdout.Write(out)
+		return
+	}
+	if os.Getenv("OMNIBRIDGE_HEADLESS") == "1" {
+		if err := runHeadless(root, logger); err != nil {
+			fatal(logger, err)
+		}
+		return
+	}
 	if integratedDesktopSupported() {
 		_ = os.Remove(filepath.Join(root, "data", "restart.request"))
 		if err := runIntegrated(root, logger); err != nil {
@@ -77,85 +75,12 @@ func applicationRoot() (string, error) {
 	return root, nil
 }
 
-func newCore(root string, logger *log.Logger) (*coreRuntime, error) {
-	data := filepath.Join(root, "data")
-	db, err := storage.Open(filepath.Join(data, "omnibridge.db"))
-	if err != nil {
-		return nil, fmt.Errorf("open persistence 2.0 database: %w", err)
-	}
-	importReport, err := db.ImportLegacy(data)
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("import legacy persistence: %w", err)
-	}
-	if importReport.Imported {
-		logger.Printf("[storage] legacy persistence imported: providers=%d accounts=%d models=%d usage_events=%d health_events=%d backup=%s", importReport.Providers, importReport.Accounts, importReport.Models, importReport.UsageEvents, importReport.HealthEvents, importReport.BackupDir)
-	}
-	cfg, err := config.NewPersistent(filepath.Join(data, "config.json"), db)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	secrets := secretstore.New(filepath.Join(data, "secrets.json"))
-	if err := cfg.EnsureProtectedBridgeKeys(secrets); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("protect bridge keys: %w", err)
-	}
-	pm := providers.NewManager(secrets, filepath.Join(data, "russian_trusted_root_ca_pem.crt"))
-	am := accounts.NewManager(root, secrets)
-	reg := registry.NewPersistent(filepath.Join(data, "model-registry.json"), db, cfg, pm, am)
-	st := stats.NewPersistent(filepath.Join(data, "usage-stats.json"), db)
-	hs := health.NewPersistent(filepath.Join(data, "connection-health.json"), db)
-	srv := server.New(cfg, secrets, pm, am, reg, st, logger, hs)
-	srv.SetStorage(db)
-	srv.SetRoot(root)
-	refreshCtx, cancel := context.WithCancel(context.Background())
-	go func() {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				logger.Printf("[recovery] background refresh panic: %v\n%s", recovered, debug.Stack())
-			}
-		}()
-		ctx, stop := context.WithTimeout(refreshCtx, 90*time.Second)
-		srv.BackgroundRefresh(ctx)
-		stop()
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-refreshCtx.Done():
-				return
-			case <-ticker.C:
-				ctx, stop := context.WithTimeout(refreshCtx, 90*time.Second)
-				srv.BackgroundRefresh(ctx)
-				stop()
-			}
-		}
-	}()
-	return &coreRuntime{server: srv, accounts: am, stats: st, db: db, cancel: cancel}, nil
-}
-
-func (c *coreRuntime) close() {
-	if c.cancel != nil {
-		c.cancel()
-	}
-	if c.accounts != nil {
-		c.accounts.Close()
-	}
-	if c.stats != nil {
-		_ = c.stats.Flush()
-	}
-	if c.db != nil {
-		_ = c.db.Close()
-	}
-}
-
 func runHeadless(root string, logger *log.Logger) error {
-	core, err := newCore(root, logger)
+	core, err := app.NewCore(root, logger)
 	if err != nil {
 		return err
 	}
-	defer core.close()
+	defer core.Close()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sig)
@@ -163,9 +88,9 @@ func runHeadless(root string, logger *log.Logger) error {
 		<-sig
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = core.server.Stop(ctx)
+		_ = core.Server.Stop(ctx)
 	}()
-	err = core.server.Start()
+	err = core.Server.Start()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -186,11 +111,11 @@ func runIntegrated(root string, logger *log.Logger) error {
 }
 
 func runIntegratedOnce(root string, logger *log.Logger) (bool, error) {
-	core, err := newCore(root, logger)
+	core, err := app.NewCore(root, logger)
 	if err != nil {
 		return false, err
 	}
-	defer core.close()
+	defer core.Close()
 	serverErr := make(chan error, 1)
 	go func() {
 		defer func() {
@@ -199,9 +124,9 @@ func runIntegratedOnce(root string, logger *log.Logger) (bool, error) {
 				serverErr <- fmt.Errorf("integrated Core recovered from panic: %v", recovered)
 			}
 		}()
-		serverErr <- core.server.Start()
+		serverErr <- core.Server.Start()
 	}()
-	if err := waitForCore(core.server.Config.Get().Listen, serverErr); err != nil {
+	if err := waitForCore(core.Server.Config.Get().Listen, serverErr); err != nil {
 		return false, err
 	}
 
@@ -211,7 +136,7 @@ func runIntegratedOnce(root string, logger *log.Logger) (bool, error) {
 	}
 	exitCode, uiErr := launchIntegratedDesktop(root, page)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	_ = core.server.Stop(ctx)
+	_ = core.Server.Stop(ctx)
 	cancel()
 	select {
 	case err := <-serverErr:
