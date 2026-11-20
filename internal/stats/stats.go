@@ -31,6 +31,7 @@ type Metrics struct {
 }
 
 type Event struct {
+	session           bool      `json:"-"` // recorded by this process instance
 	At                time.Time `json:"at"`
 	Provider          string    `json:"provider,omitempty"`
 	Model             string    `json:"model,omitempty"`
@@ -158,7 +159,7 @@ func (s *Store) RecordCached(provider, model string, failed bool, in, cached, ou
 	s.s.Total = add(s.s.Total, failed, in, cached, out, total, lat)
 	s.s.Providers[provider] = add(s.s.Providers[provider], failed, in, cached, out, total, lat)
 	s.s.Models[model] = add(s.s.Models[model], failed, in, cached, out, total, lat)
-	s.s.Events = append(s.s.Events, Event{At: now, Provider: provider, Model: model, Failed: failed, InputTokens: in, CachedInputTokens: cached, OutputTokens: out, TotalTokens: total, LatencyMS: lat})
+	s.s.Events = append(s.s.Events, Event{session: true, At: now, Provider: provider, Model: model, Failed: failed, InputTokens: in, CachedInputTokens: cached, OutputTokens: out, TotalTokens: total, LatencyMS: lat})
 	cutoff := time.Now().Add(-30 * 24 * time.Hour)
 	first := 0
 	for first < len(s.s.Events) && s.s.Events[first].At.Before(cutoff) {
@@ -219,14 +220,14 @@ func (s *Store) WindowSince(cutoff time.Time) Counter {
 	return c
 }
 
-// windowAfter counts events strictly after the session start. Equal timestamps
-// (coarse clocks on Windows) must not leak persisted events into a new session.
-func (s *Store) windowAfter(start time.Time) Counter {
+// windowSession counts events recorded by this process instance. It does not
+// depend on clock resolution, so persisted events never leak into the session.
+func (s *Store) windowSession() Counter {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var c Counter
 	for _, e := range s.s.Events {
-		if !e.At.After(start) {
+		if !e.session {
 			continue
 		}
 		c = add(c, e.Failed, e.InputTokens, e.CachedInputTokens, e.OutputTokens, e.TotalTokens, e.LatencyMS)
@@ -235,9 +236,6 @@ func (s *Store) windowAfter(start time.Time) Counter {
 }
 
 func (s *Store) Period(name string) Counter {
-	s.mu.Lock()
-	sessionStart := s.sessionStarted
-	s.mu.Unlock()
 	switch name {
 	case "24h":
 		return s.Window(24 * time.Hour)
@@ -246,7 +244,7 @@ func (s *Store) Period(name string) Counter {
 	case "30d":
 		return s.Window(30 * 24 * time.Hour)
 	case "session":
-		return s.windowAfter(sessionStart)
+		return s.windowSession()
 	case "all", "all_time", "":
 		return s.Snapshot().Total
 	default:
@@ -301,7 +299,7 @@ func (s *Store) PeriodDetails(name string) PeriodSnapshot {
 	modelLat := map[string][]int64{}
 	for _, e := range s.s.Events {
 		if name == "session" {
-			if !e.At.After(from) {
+			if !e.session {
 				continue
 			}
 		} else if !from.IsZero() && e.At.Before(from) {
