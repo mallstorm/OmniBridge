@@ -4,9 +4,9 @@
 
 ## Текущий baseline
 
-**Каноническая версия: `1.0.0-rc5`.**
+**Каноническая версия: `1.0.0-rc8`** (`VERSION.txt`, `RELEASE.json`).
 
-С 17 августа 2026 года RC5 развёрнут как полноценный исходный проект непосредственно в ветке **`main`**. Для разработки больше не требуется скачивать и распаковывать ZIP-архив.
+С 17 августа 2026 года проект (тогда RC5) развёрнут как полноценный исходный проект непосредственно в ветке **`main`**. Для разработки больше не требуется скачивать и распаковывать ZIP-архив.
 
 Главная рабочая база теперь — **исходники в корне репозитория**.
 
@@ -121,7 +121,10 @@ OmniBridge включает:
 - `0.3.2-rc3`–`rc6` — стабилизация alpha31-derived ветки.
 - `0.4.1-alpha1` … `0.4.13-alpha13` — Persistence, Provider Engine, Resilience, Router 3.0, Doctor-aware routing, Protocol Engine, transport, quota/context/integration/MCP/observability.
 - `1.0.0-rc1`–`rc4` — release engineering, VS Code picker/auth, GigaChat TLS и Model UI fixes.
-- `1.0.0-rc5` — **текущий source baseline в `main`**: Yandex AI Studio + heavy-load stabilization.
+- `1.0.0-rc5` — Yandex AI Studio + heavy-load stabilization.
+- `1.0.0-rc6` — Yandex AI Studio: читаемые имена моделей, VS Code, маршрутизация по native-URI (`docs/RC6_VSCODE_YANDEX_FIX_RU.md`).
+- `1.0.0-rc7` — Verified Models: раздельные состояния Discovery / Chat Verified / Agent Ready / Identity Verified, фактическая identity в ответах (`docs/RC7_VERIFIED_MODELS_IDENTITY_RU.md`).
+- `1.0.0-rc8` — **текущий source baseline в `main`**: Cline Bridge (проверка Cline API, копирование Local Bridge Key), встроенное обслуживание в `OmniBridge.exe`, раздельные Runtime/Source-архивы (`docs/RC8_CLINE_BRIDGE_RU.md`).
 
 ## UI contract
 
@@ -142,6 +145,6 @@ OmniBridge включает:
 
 ## Правило дальнейшей разработки
 
-**Разрабатываем OmniBridge непосредственно в `main` от текущего RC5 source tree.**
+**Разрабатываем OmniBridge непосредственно в `main` от текущего RC8 source tree.**
 
 `archives/` — только резервные snapshots. RC4 остаётся recovery-копией. Экспериментальные `0.4.0-alpha28`–`alpha30` не должны использоваться для восстановления или дальнейшей разработки.
