@@ -506,6 +506,28 @@ func (s *Store) DeleteProvider(id string) error {
 	return s.saveLocked()
 }
 
+const HubModelAlias = "hub-active"
+
+func (s *Store) SetHubModel(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := &s.cfg.Routing
+	if _, exists := r.Policies[HubModelAlias]; exists || len(r.Priorities[HubModelAlias]) > 0 {
+		return errors.New("hub-active already has a routing policy")
+	}
+	previous := r.Aliases
+	r.Aliases = make(map[string]string, len(previous)+1)
+	for k, v := range previous {
+		r.Aliases[k] = v
+	}
+	r.Aliases[HubModelAlias] = id
+	if err := s.saveLocked(); err != nil {
+		r.Aliases = previous
+		return err
+	}
+	return nil
+}
+
 func (s *Store) SetRouting(r RoutingConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

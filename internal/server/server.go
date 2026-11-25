@@ -143,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /bridge/router/evaluate", s.withAdmin(s.routerEvaluate))
 	mux.HandleFunc("GET /bridge/resilience", s.withAdmin(s.resilienceStatus))
 	mux.HandleFunc("POST /bridge/resilience/reset", s.withAdmin(s.resetResilience))
+	mux.HandleFunc("PUT /bridge/router/active-model", s.withAdmin(s.putActiveModel))
 	mux.HandleFunc("PUT /bridge/router", s.withAdmin(s.putRouter))
 	mux.HandleFunc("GET /bridge/quota-cost", s.withAdmin(s.quotaCostStatus))
 	mux.HandleFunc("PUT /bridge/quota-cost", s.withAdmin(s.putQuotaCostConfig))
@@ -384,6 +385,11 @@ func authOK(r *http.Request, key string) bool {
 func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 	mods := s.Registry.Models()
 	data := make([]map[string]any, 0, len(mods)+len(autoVirtualModels))
+	if target := s.Config.Get().Routing.Aliases[config.HubModelAlias]; target != "" {
+		if _, err := s.Registry.Find(target); err == nil {
+			data = append(data, map[string]any{"id": config.HubModelAlias, "object": "model", "owned_by": "omnibridge-router", "type": "virtual"})
+		}
+	}
 	for _, v := range autoVirtualModels {
 		data = append(data, map[string]any{"id": v, "object": "model", "owned_by": "omnibridge-router", "type": "virtual"})
 	}
@@ -2043,6 +2049,26 @@ func (s *Server) bridgeStatistics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, 200, s.Stats.PeriodDetails(period))
+}
+
+func (s *Server) putActiveModel(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
+		jsonErr(w, 400, "invalid model selection")
+		return
+	}
+	m, err := s.Registry.Find(in.Model)
+	if err != nil {
+		jsonErr(w, 400, "model unavailable")
+		return
+	}
+	if err := s.Config.SetHubModel(m.ID); err != nil {
+		jsonErr(w, 409, err.Error())
+		return
+	}
+	jsonOut(w, 200, map[string]string{"model": m.ID})
 }
 
 func (s *Server) getRouter(w http.ResponseWriter, r *http.Request) {

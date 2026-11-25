@@ -94,8 +94,8 @@ export function AreaChart({ values, height = 120, label }: { values: number[]; h
     <svg className="area-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label={label}>
       <defs>
         <linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.45" />
-          <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="var(--accent-2)" stopOpacity="0" />
         </linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map((g) => (

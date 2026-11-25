@@ -36,7 +36,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         return { connected: true, frame: f, history, tokensPerSec: tps, requestsPerMin: rpm }
       })
     })
-    return off
+    const expiry = setInterval(() => {
+      if (prev.current && Date.now() - prev.current.at > 4500) {
+        prev.current = null
+        setState({ connected: false, frame: null, history: [], tokensPerSec: 0, requestsPerMin: 0 })
+      }
+    }, 1000)
+    return () => { off(); clearInterval(expiry) }
   }, [])
 
   return <LiveCtx.Provider value={state}>{children}</LiveCtx.Provider>

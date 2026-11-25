@@ -1,3 +1,4 @@
+import { ConnectionMetrics, ProviderIcon } from '../components/ConnectionIdentity'
 import { useState } from 'react'
 import { Card, Badge, Toggle, Button, Modal, Empty } from '../components/ui'
 import { PageHeader } from '../components/Shell'
@@ -72,11 +73,12 @@ export function Connections({ notify }: { notify: (t: string, tone?: 'ok' | 'bad
             <Card key={p.id} className={`conn ${p.enabled ? '' : 'conn-off'}`}>
               <div className="conn-head">
                 <div>
-                  <div className="conn-name">{p.name}</div>
+                  <div className="conn-name source-name"><ProviderIcon kind={p.kind} />{p.name}</div>
                   <div className="muted small">{p.kind}{p.base_url ? ' · ' + hostOf(p.base_url) : ''}</div>
                 </div>
                 <Toggle label={`Включить ${p.name}`} checked={p.enabled} onChange={(v) => run(() => setEnabled('providers', p.id, v), v ? 'Включено' : 'Выключено')} />
               </div>
+              <ConnectionMetrics id={p.id} />
               <div className="conn-meta">
                 {p.enabled ? <Badge tone="ok">Активен</Badge> : <Badge tone="neutral">Выключен</Badge>}
                 {p.support_level && <Badge tone={p.support_level === 'native' ? 'info' : 'neutral'}>{levelLabel(p.support_level)}</Badge>}
@@ -100,11 +102,12 @@ export function Connections({ notify }: { notify: (t: string, tone?: 'ok' | 'bad
             <Card key={a.id} className={`conn ${a.enabled ? '' : 'conn-off'}`}>
               <div className="conn-head">
                 <div>
-                  <div className="conn-name">{a.name}</div>
+                  <div className="conn-name source-name"><ProviderIcon kind={a.kind} />{a.name}</div>
                   <div className="muted small">{a.email || 'аккаунт не определён'}{a.plan ? ' · ' + a.plan : ''}</div>
                 </div>
                 <Toggle label={`Включить ${a.name}`} checked={a.enabled} onChange={(v) => run(() => setEnabled('accounts', a.id, v), v ? 'Включено' : 'Выключено')} />
               </div>
+              <ConnectionMetrics id={a.id} />
               <div className="conn-meta">
                 {a.last_error ? <Badge tone="bad">Ошибка</Badge> : a.enabled ? <Badge tone="ok">Активна</Badge> : <Badge tone="neutral">Выключена</Badge>}
                 <span className="muted small">проверено {ago(a.last_connected_at)}</span>

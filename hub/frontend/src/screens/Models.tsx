@@ -1,3 +1,4 @@
+import { ModelSwitch } from '../components/ModelSwitch'
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Empty, Button } from '../components/ui'
 import { PageHeader } from '../components/Shell'
@@ -25,10 +26,11 @@ export function Models({ notify }: { notify: (t: string, tone?: 'ok' | 'bad') =>
 
   return (
     <>
-      <PageHeader title="Модели" subtitle="Всё, что шлюз отдаёт клиентам через /v1/models" actions={
+      <PageHeader title="Каталог моделей" subtitle="Всё, что шлюз отдаёт клиентам через /v1/models" actions={
         <Button variant="ghost" onClick={() => window.hub.models().then((r) => setModels(r.ok ? r.models : []))}>Обновить список</Button>
       } />
 
+      <ModelSwitch notify={notify} />
       {models === null && <div className="muted">Загрузка…</div>}
       {models && models.length === 0 && (
         <Empty title="Моделей пока нет" text="Включи хотя бы одно подключение во вкладке «Подключения», и список появится здесь." />

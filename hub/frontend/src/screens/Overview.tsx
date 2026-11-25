@@ -1,3 +1,5 @@
+import { ConnectionMetrics, ProviderIcon } from '../components/ConnectionIdentity'
+import { ModelSwitch } from '../components/ModelSwitch'
 import { useEffect, useState } from 'react'
 import { Card, Stat, Toggle, Badge, AreaChart, Button, SectionHead } from '../components/ui'
 import { PageHeader } from '../components/Shell'
@@ -37,7 +39,7 @@ export function Overview({ running, endpoint, keyMasked, go, notify }: {
 
   return (
     <>
-      <PageHeader title="Обзор" subtitle="Один endpoint и один ключ для всех IDE и расширений" />
+      <PageHeader title="Обзор шлюза" />
 
       <div className="grid-hero">
         <Card glow className="hero">
@@ -53,8 +55,14 @@ export function Overview({ running, endpoint, keyMasked, go, notify }: {
             </div>
           </div>
           <AreaChart values={live.history.map((h) => h.tps)} height={140} label="Токены в секунду" />
+          <div className="traffic-details">
+            <span>Входящие токены <b>{live.connected ? num(live.frame?.total.input_tokens ?? 0) : '—'}</b></span>
+            <span>Исходящие <b>{live.connected ? num(live.frame?.total.output_tokens ?? 0) : '—'}</b></span>
+            <span>Ошибки сессии <b>{live.connected ? num(errors) : '—'}</b></span>
+          </div>
         </Card>
 
+        <div className="gateway-tools"><ModelSwitch notify={notify} />
         <Card>
           <SectionHead kicker="Подключение" title="Для IDE и расширений" />
           <div className="kv"><span className="muted">Endpoint</span><code>{endpoint}</code></div>
@@ -64,7 +72,7 @@ export function Overview({ running, endpoint, keyMasked, go, notify }: {
             <Button variant="ghost" size="sm" onClick={() => window.hub.copy({ what: 'key' })}>Копировать ключ</Button>
           </div>
           <Button variant="subtle" size="sm" onClick={() => go('integrations')}>Настроить интеграции →</Button>
-        </Card>
+        </Card></div>
       </div>
 
       <div className="grid-stats">
@@ -74,25 +82,27 @@ export function Overview({ running, endpoint, keyMasked, go, notify }: {
         <Stat label="Запросов за сессию" value={num(requests)} hint={errors ? `ошибок: ${num(errors)}` : 'без ошибок'} tone={errors ? 'warn' : 'ok'} />
       </div>
 
-      <div className="grid-2">
+      <div className="overview-sources">
         <Card>
           <SectionHead kicker="Источники" title="Быстрое управление" aside={<Button variant="ghost" size="sm" onClick={() => go('connections')}>Все подключения</Button>} />
-          <div className="list">
-            {(providers.data ?? []).slice(0, 6).map((p) => (
+          <div className="source-list list">
+            {(providers.data ?? []).map((p) => (
               <div className="list-row" key={'p' + p.id}>
                 <div>
-                  <div>{p.name}</div>
+                  <div className="source-name"><ProviderIcon kind={p.kind} />{p.name}</div>
                   <div className="muted small">API-ключ · {p.kind}</div>
                 </div>
+                <ConnectionMetrics id={p.id} />
                 <Toggle label={`Включить ${p.name}`} checked={p.enabled} onChange={(v) => toggle('providers', p.id, v)} />
               </div>
             ))}
-            {(accounts.data ?? []).slice(0, 6).map((a) => (
+            {(accounts.data ?? []).map((a) => (
               <div className="list-row" key={'a' + a.id}>
                 <div>
-                  <div>{a.name}</div>
+                  <div className="source-name"><ProviderIcon kind={a.kind} />{a.name}</div>
                   <div className="muted small">Подписка · {a.email || a.plan || a.kind}</div>
                 </div>
+                <ConnectionMetrics id={a.id} />
                 <Toggle label={`Включить ${a.name}`} checked={a.enabled} onChange={(v) => toggle('accounts', a.id, v)} />
               </div>
             ))}

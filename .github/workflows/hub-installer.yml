@@ -56,6 +56,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'core build failed' }
           Get-Item hub/resources/core/omnibridge.exe | Format-List Name, Length
 
+      - name: Build React frontend
+        working-directory: hub
+        run: npm run ui:build
+
       - name: Build NSIS installer
         working-directory: hub
         shell: pwsh

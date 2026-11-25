@@ -8,7 +8,7 @@ const NAV: { group: string; items: { id: Route; label: string; icon: string }[] 
   { group: 'Работа', items: [
     { id: 'overview', label: 'Обзор', icon: '◎' },
     { id: 'stats', label: 'Статистика', icon: '▤' },
-    { id: 'models', label: 'Модели', icon: '◇' },
+    { id: 'models', label: 'Хаб моделей', icon: '◇' },
   ] },
   { group: 'Источники', items: [
     { id: 'connections', label: 'Подключения', icon: '⬡' },

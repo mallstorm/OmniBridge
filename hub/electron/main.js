@@ -35,7 +35,7 @@ function createWindow() {
     minWidth: 1080,
     minHeight: 680,
     show: false,
-    backgroundColor: '#05070d',
+    backgroundColor: '#0c0b0b',
     title: 'OmniHub',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

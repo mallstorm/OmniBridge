@@ -1,6 +1,7 @@
 'use strict';
 // End-to-end check of the Hub contract with a fake upstream provider:
 // add provider -> models appear -> hot disable -> models disappear -> chat tokens counted.
+const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -20,7 +21,8 @@ function fakeUpstream() {
         if (req.url.endsWith('/models')) {
           res.end(JSON.stringify({ object: 'list', data: [{ id: 'demo-fast', object: 'model' }, { id: 'demo-pro', object: 'model' }] }));
         } else if (req.url.endsWith('/chat/completions')) {
-          res.end(JSON.stringify({ id: 'x', object: 'chat.completion', model: 'demo-fast', choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 } }));
+          srv.lastModel = JSON.parse(body).model;
+          res.end(JSON.stringify({ id: 'x', object: 'chat.completion', model: JSON.parse(body).model, choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 } }));
         } else {
           res.statusCode = 404;
           res.end('{}');
@@ -74,6 +76,13 @@ async function waitFor(fn, label, timeoutMs = 15000) {
     await waitFor(hasDemo, 'demo models to return');
     console.log('hot enable restores models: yes');
 
+    for (const target of ['demo-fast', 'demo-pro']) {
+      const selection = await core.coreJSON('PUT', '/bridge/router/active-model', admin, JSON.stringify({ model: providerId + '/' + target }));
+      assert.equal(selection.status, 200);
+      const routed = await core.coreJSON('POST', '/v1/chat/completions', data, JSON.stringify({ model: 'hub-active', messages: [{ role: 'user', content: 'hi' }] }));
+      assert.equal(routed.status, 200);
+      assert.equal(upstream.lastModel, target);
+    }
     const chat = await core.coreJSON('POST', '/v1/chat/completions', data, JSON.stringify({ model: 'demo-fast', messages: [{ role: 'user', content: 'hi' }] }));
     if (!chat.ok) throw new Error(`chat ${chat.status} ${JSON.stringify(chat.body)}`);
     const st = await core.coreJSON('GET', '/bridge/statistics?period=session', admin);

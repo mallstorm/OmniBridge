@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"omnibridge/internal/config"
 	"omnibridge/internal/providers"
 )
 
@@ -199,6 +200,13 @@ func (s *Server) bridgeVSCodeExport(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if x, ok := s.vscodeModelFromRegistry(base, m); ok {
+			if m.ID == cfg.Routing.Aliases[config.HubModelAlias] {
+				active := x
+				active.ID = config.HubModelAlias
+				active.Name = "OmniHub · Активная модель"
+				active.Virtual = true
+				models = append(models, active)
+			}
 			models = append(models, x)
 		}
 	}

@@ -4,6 +4,7 @@
 
 const ID = '[^/?]+';
 const ALLOW = [
+  ['PUT', /^\/bridge\/router\/active-model$/],
   ['GET', new RegExp(`^/bridge/(status|providers|accounts|account-catalog|catalog|router|integrations|vscode|vscode/export|connections/health|resilience|quota-cost|observability)$`)],
   ['GET', /^\/bridge\/statistics\?period=(session|24h|7d|30d|all)$/],
   ['GET', new RegExp(`^/bridge/accounts/${ID}/usage$`)],
